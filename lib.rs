@@ -1,4 +1,6 @@
 #![warn(missing_docs)]
+//! ![logo](https://github.com/mnmun/json/blob/main/logo.png?raw=true)
+//!
 //! # JSON lexer built on top of [`a_bc`]
 //!
 //! A ready-made [lexer](`JsonLexer`) that splits a JSON byte input into
