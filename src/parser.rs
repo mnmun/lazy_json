@@ -253,11 +253,12 @@
 
 use std::{borrow::Cow, ops::Range};
 
+use a_bc::error::row_col_pos;
 use getset::Getters;
 
 use crate::{
     Cancel, a_bc,
-    error::{self, Position, Relation},
+    error::{self, Relation},
     lazy_tree::Node,
     lexer::{Json, Lexer},
 };
@@ -592,27 +593,30 @@ impl<'source, 'tree> Parser<'source> {
             return Err(error::Lexer::SourceIsEmpty.into());
         }
 
-        let kind =
-            match source.as_bytes().iter().find(|c| !c.is_ascii_whitespace()) {
-                Some(b'{') => Json::Object,
-                Some(b'[') => Json::Array,
-                Some(b'"') => Json::String,
-                Some(_) => Json::Sequence,
-                None => {
-                    return Err(error::Token::ExpectedButGot {
-                        expected: [
-                            Json::Object,
-                            Json::Array,
-                            Json::String,
-                            Json::Sequence,
-                        ]
-                        .into(),
-                        got: None,
-                        location: (Relation::At, Position::new(1, 1)), // TODO change to end of file
-                    }
-                    .into());
+        let kind = match source
+            .as_bytes()
+            .iter()
+            .find(|c| !c.is_ascii_whitespace())
+        {
+            Some(b'{') => Json::Object,
+            Some(b'[') => Json::Array,
+            Some(b'"') => Json::String,
+            Some(_) => Json::Sequence,
+            None => {
+                return Err(error::Token::ExpectedButGot {
+                    expected: [
+                        Json::Object,
+                        Json::Array,
+                        Json::String,
+                        Json::Sequence,
+                    ]
+                    .into(),
+                    got: None,
+                    location: (Relation::After, row_col_pos(source.as_bytes())),
                 }
-            };
+                .into());
+            }
+        };
 
         let flag = Cancel::new();
 
@@ -732,7 +736,7 @@ mod tests {
                 ]
                 .into(),
                 got: None,
-                location: (Relation::At, Position::new(1, 1)),
+                location: (Relation::After, Position::new(2, 3)),
             }
             .into()
         }));
