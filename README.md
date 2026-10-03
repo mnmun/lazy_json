@@ -2,7 +2,10 @@
 
 ![](https://github.com/mnmun/images/blob/main/lounge.png?raw=true)
 
-Provides a lazy JSON `lexer` and  `parser`.
+Provides the following lazy JSON utilities:
+
+- `Lexer`: Based on the [`a_bc`](https://github.com/mnmun/a_bc) crate;
+- `Parser`: Implemented using the `lexer` and the lazily populated `tree` from the [`lazy_tree`](https://github.com/mnmun/lazy_tree) crate.
 
 ## `Lexer`
 
