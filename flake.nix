@@ -4,7 +4,6 @@
   inputs = {
     nixpkgs.url = "nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    import-cargo.url = "github:edolstra/import-cargo";
     git-hooks.url = "github:cachix/git-hooks.nix";
   };
 
@@ -13,7 +12,6 @@
       self,
       nixpkgs,
       flake-utils,
-      import-cargo,
       git-hooks,
     }:
     flake-utils.lib.eachDefaultSystem (
@@ -36,6 +34,7 @@
               rust = {
                 check.cargoDeps = pkgs.rustPlatform.importCargoLock {
                   lockFile = ./Cargo.lock;
+                  allowBuiltinFetchGit = true;
                 };
                 cargoManifestPath = "./Cargo.toml";
               };
@@ -101,54 +100,43 @@
             lastModifiedDate = self.lastModifiedDate or self.lastModified or "19700101";
             version = "${builtins.substring 0 8 lastModifiedDate}-${self.shortRev or "dirty"}";
           in
-          {
-            inShell ? false,
-          }:
-          pkgs.stdenv.mkDerivation rec {
-            name = "lazy_json-${version}";
+          pkgs.rustPlatform.buildRustPackage rec {
+            pname = "lazy_json";
+            inherit version;
 
-            src = if inShell then null else pkgs.nix-gitignore.gitignoreSource [ ".gitignore" ] ./.;
+            src = pkgs.nix-gitignore.gitignoreSource [ ".gitignore" ] ./.;
 
-            buildInputs =
-              with pkgs;
-              [
-                cargo
-                cargo-deadlinks
-              ]
-              ++ (
-                if inShell then
-                  [
-                    lazygit
-                  ]
-                else
-                  [
-                    (import-cargo.builders.importCargo {
-                      lockFile = ./Cargo.lock;
-                      inherit pkgs;
-                    }).cargoHome
-                  ]
-              );
+            cargoLock = {
+              lockFile = ./Cargo.lock;
+              allowBuiltinFetchGit = true;
+            };
 
-            profile = if inShell then "dev" else "release";
+            profile = "release";
 
             doCheck = true;
-
             checkPhase = (check { inherit profile; }).shellHook;
 
             installPhase = ''
               mkdir -p $out
             '';
-
-            shellHook = if inShell then (check { inherit profile; }).shellHook else "";
           };
+
+        devShell = pkgs.mkShell {
+          packages = with pkgs; [
+            cargo
+            cargo-deadlinks
+            lazygit
+          ];
+          shellHook = (check { profile = "dev"; }).shellHook;
+        };
       in
       {
         checks = {
           pre-commit-check = check { profile = "release"; };
         };
 
-        packages.default = lazy_json { };
-        devShells.default = lazy_json { inShell = true; };
+        packages.default = lazy_json;
+        devShells.default = devShell;
       }
     );
 }

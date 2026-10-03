@@ -186,27 +186,27 @@
 //!
 //! [MIT](https://github.com/mnmun/lazy_json/blob/main/LICENSE)
 //!
-//! [`lexer`]: Lexer
-//! [`parser`]: Parser
-//! [`extracts`]: Lexer::next()
-//! [`extracted`]: Lexer::next()
-//! [`tokens`]: Token
-//! [`Tokens`]: Token
-//! [`kinds`]: Json
-//! [`source`]: a_bc::lexer::Data::source()
-//! [`Comma`]: Json::Comma
-//! [`Colon`]: Json::Colon
-//! [`Object`]: Json::Object
-//! [`Array`]: Json::Array
-//! [`String`]: Json::String
-//! [`Sequence`]: Json::Sequence
+//! [`lexer`]: crate::Lexer
+//! [`parser`]: crate::Parser
+//! [`extracts`]: crate::Lexer::next()
+//! [`extracted`]: crate::Lexer::next()
+//! [`tokens`]: crate::a_bc::Token
+//! [`Tokens`]: crate::a_bc::Token
+//! [`kinds`]: crate::Json
+//! [`source`]: crate::a_bc::lexer::Data::source()
+//! [`Comma`]: crate::Json::Comma
+//! [`Colon`]: crate::Json::Colon
+//! [`Object`]: crate::Json::Object
+//! [`Array`]: crate::Json::Array
+//! [`String`]: crate::Json::String
+//! [`Sequence`]: crate::Json::Sequence
 //! [`whitespace`]: u8::is_ascii_whitespace()
 //! [`whitespace characters`]: u8::is_ascii_whitespace()
-//! [`cursors`]: Cursor
-//! [`tree`]: Tree
-//! [`nodes`]: lazy_tree::Node
-//! [`populated`]: lazy_tree::node::Callback
-//! [`creates`]: lazy_tree::node::Callback
+//! [`cursors`]: crate::lazy_tree::Cursor
+//! [`tree`]: crate::lazy_tree::Tree
+//! [`nodes`]: crate::lazy_tree::Node
+//! [`populated`]: crate::lazy_tree::node::Callback
+//! [`creates`]: crate::lazy_tree::node::Callback
 
 #![allow(dead_code)]
 #![deny(rustdoc::broken_intra_doc_links)]
@@ -221,7 +221,7 @@
 pub mod lexer;
 pub mod parser;
 
-pub use a_bc::{self, Cancel, Token, error};
-pub use lazy_tree::{self, Cursor, Tree};
+pub use a_bc;
+pub use lazy_tree;
 pub use lexer::{Json, Lexer};
 pub use parser::{Bundle, Parser};

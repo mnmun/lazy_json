@@ -88,8 +88,7 @@
 //! use lazy_json::{
 //!     Json,
 //!     Lexer,
-//!     Token,
-//!     a_bc::lexer::Builder
+//!     a_bc::{Token, lexer::Builder}
 //! };
 //!
 //! // Valid source data - an object with two fields
@@ -169,9 +168,11 @@
 //! use lazy_json::{
 //!     Json,
 //!     Lexer,
-//!     Token,
-//!     error::{self, Relation, Position},
-//!     a_bc::lexer::Builder,
+//!     a_bc::{
+//!         Token,
+//!         error::{self, Relation, Position},
+//!         lexer::Builder,
+//!     },
 //! };
 //!
 //! // Invalid source data - valid top-level object with invalid field
@@ -232,7 +233,7 @@
 //! A [`lexer`] cannot be created over empty [`source`] data:
 //!
 //! ```rust
-//! use lazy_json::{error, a_bc::lexer::Builder};
+//! use lazy_json::a_bc::{error, lexer::Builder};
 //!
 //! let empty_source: &[u8] = b"";
 //!
@@ -251,8 +252,7 @@
 //! use lazy_json::{
 //!     Json,
 //!     Lexer,
-//!     Token,
-//!     a_bc::lexer::Builder,
+//!     a_bc::{Token, lexer::Builder},
 //! };
 //!
 //! // Valid source data - a string with escaped double-quotes inside:
@@ -277,33 +277,34 @@
 //!
 //! See the [`crate`] documentation for more information.
 //!
-//! [`lexer`]: Lexer
-//! [`source`]: a_bc::lexer::Data::source()
+//! [`a_bc`]: crate::a_bc
+//! [`lexer`]: crate::Lexer
+//! [`source`]: crate::a_bc::lexer::Data::source()
 //! [`.as_bytes()`]: str::as_bytes()
-//! [`extract`]: Lexer::next()
-//! [`extracts`]: Lexer::next()
-//! [`extracted`]: Lexer::next()
-//! [`extracting`]: Lexer::next()
-//! [`Extracting`]: Lexer::next()
-//! [`token`]: a_bc::Token
-//! [`Token`]: a_bc::Token
-//! [`tokens`]: a_bc::Token
-//! [`Tokens`]: a_bc::Token
-//! [`kinds`]: Json
-//! [`Comma`]: Json::Comma
-//! [`Colon`]: Json::Colon
-//! [`object`]: Json::Object
-//! [`object's`]: Json::Object
-//! [`Object`]: Json::Object
-//! [`arrays`]: Json::Array
-//! [`Array`]: Json::Array
-//! [`String`]: Json::String
-//! [`Sequence`]: Json::Sequence
+//! [`extract`]: crate::Lexer::next()
+//! [`extracts`]: crate::Lexer::next()
+//! [`extracted`]: crate::Lexer::next()
+//! [`extracting`]: crate::Lexer::next()
+//! [`Extracting`]: crate::Lexer::next()
+//! [`token`]: crate::a_bc::Token
+//! [`Token`]: crate::a_bc::Token
+//! [`tokens`]: crate::a_bc::Token
+//! [`Tokens`]: crate::a_bc::Token
+//! [`kinds`]: crate::Json
+//! [`Comma`]: crate::Json::Comma
+//! [`Colon`]: crate::Json::Colon
+//! [`object`]: crate::Json::Object
+//! [`object's`]: crate::Json::Object
+//! [`Object`]: crate::Json::Object
+//! [`arrays`]: crate::Json::Array
+//! [`Array`]: crate::Json::Array
+//! [`String`]: crate::Json::String
+//! [`Sequence`]: crate::Json::Sequence
 //! [`whitespace`]: u8::is_ascii_whitespace()
 //! [`whitespace characters`]: u8::is_ascii_whitespace()
-//! [`builder`]: a_bc::lexer::Builder
+//! [`builder`]: crate::a_bc::lexer::Builder
 //! [`parser`]: crate::parser
-//! [`error`]: a_bc::error
+//! [`error`]: crate::a_bc::error
 
 use std::{fmt, ops::Range, str::from_utf8};
 
@@ -323,8 +324,8 @@ use crate::a_bc::{
 ///
 /// See the [`module`] documentation for more information.
 ///
-/// [`Token`]: a_bc::Token
-/// [`lexer`]: Lexer
+/// [`Token`]: crate::a_bc::Token
+/// [`lexer`]: crate::Lexer
 /// [`module`]: crate::lexer
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum Json {
@@ -369,10 +370,10 @@ impl InnerRange for Json {
     ///
     /// See the [`module`] documentation for more information.
     ///
-    /// [`object`]: Json::Object
-    /// [`array`]: Json::Array
-    /// [`string`]: Json::String
-    /// [`kinds`]: Json
+    /// [`object`]: crate::Json::Object
+    /// [`array`]: crate::Json::Array
+    /// [`string`]: crate::Json::String
+    /// [`kinds`]: crate::Json
     /// [`module`]: crate::lexer
     fn inner_range(&self, range: &Range<usize>) -> Option<Range<usize>> {
         match self {
@@ -393,7 +394,7 @@ impl InnerRange for Json {
 ///
 /// ## Methods
 ///
-/// Use the following methods to inspect the [`inner lexer`](`a_bc::Lexer`)
+/// Use the following methods to inspect the [`inner lexer`](crate::a_bc::Lexer)
 /// state:
 ///
 /// - [`data()`] - the [`source bytes`] and the [`active scan range`];
@@ -419,22 +420,23 @@ impl InnerRange for Json {
 ///
 /// See the [`module`] documentation for more information.
 ///
-/// [`tokens`]: a_bc::Token
-/// [`kinds`]: Json
-/// [`data()`]: Lexer::data()
-/// [`source`]: a_bc::lexer::Data::source()
-/// [`source bytes`]: a_bc::lexer::Data::source()
-/// [`active scan range`]: a_bc::lexer::Data::range()
-/// [`cursor()`]: Lexer::cursor()
-/// [`currently observed byte`]: a_bc::lexer::Cursor::byte()
-/// [`position`]: a_bc::lexer::Cursor::position()
-/// [`flag()`]: Lexer::flag()
-/// [`cancellation flag`]: a_bc::Cancel
-/// [`next()`]: Lexer::next()
-/// [`token`]: a_bc::Token
-/// [`expect()`]: Lexer::expect()
-/// [`extract`]: Lexer::next()
-/// [`not_expect()`]: Lexer::not_expect()
+/// [`a_bc::Lexer`]: crate::a_bc::Lexer
+/// [`tokens`]: crate::a_bc::Token
+/// [`kinds`]: crate::Json
+/// [`data()`]: crate::Lexer::data()
+/// [`source`]: crate::a_bc::lexer::Data::source()
+/// [`source bytes`]: crate::a_bc::lexer::Data::source()
+/// [`active scan range`]: crate::a_bc::lexer::Data::range()
+/// [`cursor()`]: crate::Lexer::cursor()
+/// [`currently observed byte`]: crate::a_bc::lexer::Cursor::byte()
+/// [`position`]: crate::a_bc::lexer::Cursor::position()
+/// [`flag()`]: crate::Lexer::flag()
+/// [`cancellation flag`]: crate::a_bc::Cancel
+/// [`next()`]: crate::Lexer::next()
+/// [`token`]: crate::a_bc::Token
+/// [`expect()`]: crate::Lexer::expect()
+/// [`extract`]: crate::Lexer::next()
+/// [`not_expect()`]: crate::Lexer::not_expect()
 /// [`module`]: crate::lexer
 pub struct Lexer<'a>(a_bc::Lexer<'a>);
 
@@ -450,7 +452,8 @@ impl<'a> Lexer<'a> {
     ///
     /// See the [`lexer`] documentation for more information.
     ///
-    /// [`lexer`]: Lexer
+    /// [`lexer`]: crate::Lexer
+    /// [`a_bc::Lexer`]: crate::a_bc::Lexer
     pub fn new(lexer: a_bc::Lexer<'a>) -> Self {
         Self(lexer)
     }
@@ -461,9 +464,9 @@ impl Lexer<'_> {
     ///
     /// See the [`lexer`] documentation for more information.
     ///
-    /// [`data`]: a_bc::Lexer::data()
-    /// [`inner lexer`]: a_bc::Lexer
-    /// [`lexer`]: Lexer
+    /// [`data`]: crate::a_bc::Lexer::data()
+    /// [`inner lexer`]: crate::a_bc::Lexer
+    /// [`lexer`]: crate::Lexer
     pub fn data(&self) -> &Data<'_> {
         self.0.data()
     }
@@ -472,9 +475,9 @@ impl Lexer<'_> {
     ///
     /// See the [`lexer`] documentation for more information.
     ///
-    /// [`cursor`]: a_bc::Lexer::cursor()
-    /// [`inner lexer`]: a_bc::Lexer
-    /// [`lexer`]: Lexer
+    /// [`cursor`]: crate::a_bc::Lexer::cursor()
+    /// [`inner lexer`]: crate::a_bc::Lexer
+    /// [`lexer`]: crate::Lexer
     pub fn cursor(&self) -> &Cursor {
         self.0.cursor()
     }
@@ -483,9 +486,9 @@ impl Lexer<'_> {
     ///
     /// See the [`lexer`] documentation for more information.
     ///
-    /// [`flag`]: a_bc::Lexer::flag()
-    /// [`inner lexer`]: a_bc::Lexer
-    /// [`lexer`]: Lexer
+    /// [`flag`]: crate::a_bc::Lexer::flag()
+    /// [`inner lexer`]: crate::a_bc::Lexer
+    /// [`lexer`]: crate::Lexer
     pub fn flag(&self) -> &Cancel {
         self.0.flag()
     }
@@ -522,10 +525,10 @@ impl<'a> Lexer<'a> {
     ///
     /// See the [`lexer`] documentation for more information.
     ///
-    /// [`token`]: a_bc::Token
-    /// [`source`]: a_bc::lexer::Data::source()
-    /// [`range`]: a_bc::Token::range()
-    /// [`lexer`]: Lexer
+    /// [`token`]: crate::a_bc::Token
+    /// [`source`]: crate::a_bc::lexer::Data::source()
+    /// [`range`]: crate::a_bc::Token::range()
+    /// [`lexer`]: crate::Lexer
     pub fn format<'b>(&'a self, token: &'b Token<Json>) -> Option<&'a str> {
         self.data()
             .source()
@@ -570,10 +573,10 @@ impl<'a> Lexer<'a> {
     ///
     /// See the [`module`] documentation for more information.
     ///
-    /// [`cursor`]: Lexer::cursor()
-    /// [`PairNotFound`]: a_bc::error::Token::PairNotFound
-    /// [`Cancelled`]: a_bc::error::Lexer::Cancelled
-    /// [`cancellation`]: a_bc::Cancel
+    /// [`cursor`]: crate::Lexer::cursor()
+    /// [`PairNotFound`]: crate::a_bc::error::Token::PairNotFound
+    /// [`Cancelled`]: crate::a_bc::error::Lexer::Cancelled
+    /// [`cancellation`]: crate::a_bc::Cancel
     /// [`module`]: crate::lexer
     fn find_block(
         &mut self,
@@ -689,10 +692,10 @@ impl<'a> Lexer<'a> {
     ///
     /// See the [`module`] documentation for more information.
     ///
-    /// [`cursor`]: Lexer::cursor()
-    /// [`PairNotFound`]: a_bc::error::Token::PairNotFound
-    /// [`Cancelled`]: a_bc::error::Lexer::Cancelled
-    /// [`cancellation`]: a_bc::Cancel
+    /// [`cursor`]: crate::Lexer::cursor()
+    /// [`PairNotFound`]: crate::a_bc::error::Token::PairNotFound
+    /// [`Cancelled`]: crate::a_bc::error::Lexer::Cancelled
+    /// [`cancellation`]: crate::a_bc::Cancel
     /// [`module`]: crate::lexer
     fn find_string(&mut self) -> Result<Range<usize>, error::Error<Json>> {
         let initial_position = *self.cursor().position();
@@ -787,9 +790,9 @@ impl<'a> Lexer<'a> {
     ///
     /// See the [`module`] documentation for more information.
     ///
-    /// [`cursor`]: Lexer::cursor()
-    /// [`Cancelled`]: a_bc::error::Lexer::Cancelled
-    /// [`cancellation`]: a_bc::Cancel
+    /// [`cursor`]: crate::Lexer::cursor()
+    /// [`Cancelled`]: crate::a_bc::error::Lexer::Cancelled
+    /// [`cancellation`]: crate::a_bc::Cancel
     /// [`module`]: crate::lexer
     fn find_sequence(&mut self) -> Result<Range<usize>, error::Error<Json>> {
         let start = *self.cursor().position();
@@ -834,8 +837,7 @@ impl<'a> Lexer<'a> {
     /// use lazy_json::{
     ///     Json,
     ///     Lexer,
-    ///     Token,
-    ///     a_bc::lexer::Builder,
+    ///     a_bc::{Token, lexer::Builder},
     /// };
     ///
     /// let source: &[u8] = br#" " string " "#;
@@ -855,9 +857,11 @@ impl<'a> Lexer<'a> {
     /// use lazy_json::{
     ///     Json,
     ///     Lexer,
-    ///     Token,
-    ///     error::{self, Relation, Position},
-    ///     a_bc::lexer::Builder,
+    ///     a_bc::{
+    ///         Token,
+    ///         error::{self, Relation, Position},
+    ///         lexer::Builder,
+    ///     },
     /// };
     ///
     /// let source: &[u8] = br#" { object } "#;
@@ -881,9 +885,11 @@ impl<'a> Lexer<'a> {
     /// use lazy_json::{
     ///     Json,
     ///     Lexer,
-    ///     Token,
-    ///     error::{self, Relation, Position},
-    ///     a_bc::lexer::Builder,
+    ///     a_bc::{
+    ///         Token,
+    ///         error::{self, Relation, Position},
+    ///         lexer::Builder,
+    ///     },
     /// };
     ///
     /// // Source containing only three whitespace characters:
@@ -904,14 +910,14 @@ impl<'a> Lexer<'a> {
     ///
     /// See the [`lexer`] documentation for more information.
     ///
-    /// [`token`]: a_bc::Token
-    /// [`tokens`]: a_bc::Token
-    /// [`kinds`]: Json
-    /// [`kind`]: Json
-    /// [`ExpectedButGot`]: a_bc::error::Token::ExpectedButGot
-    /// [`extracted`]: Lexer::next()
-    /// [`input`]: a_bc::lexer::Data::source()
-    /// [`lexer`]: Lexer
+    /// [`token`]: crate::a_bc::Token
+    /// [`tokens`]: crate::a_bc::Token
+    /// [`kinds`]: crate::Json
+    /// [`kind`]: crate::Json
+    /// [`ExpectedButGot`]: crate::a_bc::error::Token::ExpectedButGot
+    /// [`extracted`]: crate::Lexer::next()
+    /// [`input`]: crate::a_bc::lexer::Data::source()
+    /// [`lexer`]: crate::Lexer
     pub fn expect(
         &mut self,
         kinds: &[Json],
@@ -970,8 +976,7 @@ impl<'a> Lexer<'a> {
     /// use lazy_json::{
     ///     Json,
     ///     Lexer,
-    ///     Token,
-    ///     a_bc::lexer::Builder,
+    ///     a_bc::{Token, lexer::Builder},
     /// };
     ///
     /// let source: &[u8] = br#" " string " "#;
@@ -991,9 +996,11 @@ impl<'a> Lexer<'a> {
     /// use lazy_json::{
     ///     Json,
     ///     Lexer,
-    ///     Token,
-    ///     error::{self, Relation, Position},
-    ///     a_bc::lexer::Builder,
+    ///     a_bc::{
+    ///         Token,
+    ///         error::{self, Relation, Position},
+    ///         lexer::Builder,
+    ///     },
     /// };
     ///
     /// let source: &[u8] = br#" { object } "#;
@@ -1017,9 +1024,11 @@ impl<'a> Lexer<'a> {
     /// use lazy_json::{
     ///     Json,
     ///     Lexer,
-    ///     Token,
-    ///     error::{self, Relation, Position},
-    ///     a_bc::lexer::Builder,
+    ///     a_bc::{
+    ///         Token,
+    ///         error::{self, Relation, Position},
+    ///         lexer::Builder,
+    ///     },
     /// };
     ///
     /// // Source containing only three whitespace characters:
@@ -1040,14 +1049,14 @@ impl<'a> Lexer<'a> {
     ///
     /// See the [`lexer`] documentation for more information.
     ///
-    /// [`token`]: a_bc::Token
-    /// [`tokens`]: a_bc::Token
-    /// [`kinds`]: Json
-    /// [`kind`]: Json
-    /// [`NotExpectedButGot`]: a_bc::error::Token::NotExpectedButGot
-    /// [`extracted`]: Lexer::next()
-    /// [`input`]: a_bc::lexer::Data::source()
-    /// [`lexer`]: Lexer
+    /// [`token`]: crate::a_bc::Token
+    /// [`tokens`]: crate::a_bc::Token
+    /// [`kinds`]: crate::Json
+    /// [`kind`]: crate::Json
+    /// [`NotExpectedButGot`]: crate::a_bc::error::Token::NotExpectedButGot
+    /// [`extracted`]: crate::Lexer::next()
+    /// [`input`]: crate::a_bc::lexer::Data::source()
+    /// [`lexer`]: crate::Lexer
     pub fn not_expect(
         &mut self,
         kinds: &[Json],
@@ -1112,20 +1121,20 @@ impl<'a> Iterator for Lexer<'a> {
     ///
     /// See the [`lexer`] documentation for more information.
     ///
-    /// [`token`]: a_bc::Token
-    /// [`source`]: a_bc::lexer::Data::source()
-    /// [`kind`]: Json
-    /// [`Colon`]: Json::Colon
-    /// [`Comma`]: Json::Comma
-    /// [`Object`]: Json::Object
-    /// [`Array`]: Json::Array
-    /// [`String`]: Json::String
-    /// [`Sequence`]: Json::Sequence
-    /// [`cancellation request`]: a_bc::Cancel::cancel()
-    /// [`Cancelled`]: error::Lexer::Cancelled
-    /// [`cursor`]: a_bc::lexer::Cursor
-    /// [`range`]: a_bc::lexer::Data::range()
-    /// [`lexer`]: Lexer
+    /// [`token`]: crate::a_bc::Token
+    /// [`source`]: crate::a_bc::lexer::Data::source()
+    /// [`kind`]: crate::Json
+    /// [`Colon`]: crate::Json::Colon
+    /// [`Comma`]: crate::Json::Comma
+    /// [`Object`]: crate::Json::Object
+    /// [`Array`]: crate::Json::Array
+    /// [`String`]: crate::Json::String
+    /// [`Sequence`]: crate::Json::Sequence
+    /// [`cancellation request`]: crate::a_bc::Cancel::cancel()
+    /// [`Cancelled`]: crate::a_bc::error::Lexer::Cancelled
+    /// [`cursor`]: crate::a_bc::lexer::Cursor
+    /// [`range`]: crate::a_bc::lexer::Data::range()
+    /// [`lexer`]: crate::Lexer
     fn next(&mut self) -> Option<Self::Item> {
         self.0.skip_whitespace();
 
@@ -1169,9 +1178,11 @@ mod tests {
     };
 
     use crate::{
-        Token,
-        a_bc::lexer::Builder,
-        error::{self, Relation},
+        a_bc::{
+            Token,
+            error::{self, Relation},
+            lexer::Builder,
+        },
         lexer::{Json, Lexer},
     };
 

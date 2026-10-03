@@ -138,7 +138,7 @@
 //! use pretty_assertions::assert_eq;
 //!
 //! use lazy_json::{
-//!     error::{self, Relation, Position},
+//!     a_bc::error::{self, Relation, Position},
 //!     lazy_tree::cursor::{Direction, Target},
 //!     Json,
 //!     Parser,
@@ -213,7 +213,7 @@
 //! use pretty_assertions::assert_eq;
 //!
 //! use lazy_json::{
-//!     error::{self, Relation, Position},
+//!     a_bc::error::{self, Relation, Position},
 //!     lazy_tree::cursor::{Direction, Target},
 //!     Json,
 //!     Parser,
@@ -232,24 +232,24 @@
 //! See the [`crate`] documentation for more information.
 //!
 //! [`lexer`]: crate::Lexer
-//! [`lazy_tree`]: lazy_tree
-//! [`tree`]: lazy_tree::Tree
-//! [`parser`]: Parser
-//! [`parser's`]: Parser
-//! [`source`]: a_bc::lexer::Data::source()
-//! [`value`]: Node::value()
-//! [`node`]: Node
-//! [`nodes`]: Node
-//! [`cursor`]: lazy_tree::Cursor
-//! [`cursors`]: lazy_tree::Cursor
-//! [`Cursors`]: lazy_tree::Cursor
-//! [`populated`]: lazy_tree::node::Callback
-//! [`creates`]: lazy_tree::node::Callback
-//! [`kind`]: Bundle::kind()
-//! [`content`]: Bundle::content()
-//! [`walk()`]: lazy_tree::Cursor::walk()
-//! [`jump()`]: lazy_tree::Cursor::jump()
-//! [`go_to()`]: lazy_tree::Cursor::go_to()
+//! [`lazy_tree`]: crate::lazy_tree
+//! [`tree`]: crate::lazy_tree::Tree
+//! [`parser`]: crate::Parser
+//! [`parser's`]: crate::Parser
+//! [`source`]: crate::a_bc::lexer::Data::source()
+//! [`value`]: crate::lazy_tree::Node::value()
+//! [`node`]: crate::lazy_tree::Node
+//! [`nodes`]: crate::lazy_tree::Node
+//! [`cursor`]: crate::lazy_tree::Cursor
+//! [`cursors`]: crate::lazy_tree::Cursor
+//! [`Cursors`]: crate::lazy_tree::Cursor
+//! [`populated`]: crate::lazy_tree::node::Callback
+//! [`creates`]: crate::lazy_tree::node::Callback
+//! [`kind`]: crate::parser::Bundle::kind()
+//! [`content`]: crate::parser::Bundle::content()
+//! [`walk()`]: crate::lazy_tree::Cursor::walk()
+//! [`jump()`]: crate::lazy_tree::Cursor::jump()
+//! [`go_to()`]: crate::lazy_tree::Cursor::go_to()
 
 use std::{borrow::Cow, ops::Range};
 
@@ -257,8 +257,10 @@ use a_bc::error::row_col_pos;
 use getset::Getters;
 
 use crate::{
-    Cancel, a_bc,
-    error::{self, Relation},
+    a_bc::{
+        self, Cancel,
+        error::{self, Relation},
+    },
     lazy_tree::Node,
     lexer::{Json, Lexer},
 };
@@ -282,11 +284,11 @@ type Children<'source> = Box<[Link<'source>]>;
 ///
 /// See the [`module`] documentation for more information.
 ///
-/// [`value`]: Node::value()
-/// [`node`]: Node
-/// [`tree`]: lazy_tree::Tree
-/// [`kind()`]: Bundle::kind()
-/// [`content()`]: Bundle::content()
+/// [`value`]: crate::lazy_tree::Node::value()
+/// [`node`]: crate::lazy_tree::Node
+/// [`tree`]: crate::lazy_tree::Tree
+/// [`kind()`]: crate::parser::Bundle::kind()
+/// [`content()`]: crate::parser::Bundle::content()
 /// [`module`]: crate::parser
 #[derive(Debug, Clone, Getters, PartialEq, Eq)]
 pub struct Bundle<'source> {
@@ -547,13 +549,13 @@ type Cursor<'source, 'tree> = lazy_tree::Cursor<'tree, Bundle<'source>, Error>;
 ///
 /// See the [`module`] documentation for more information.
 ///
-/// [`source`]: a_bc::lexer::Data::source()
-/// [`tree`]: lazy_tree::Tree
-/// [`node`]: Node
-/// [`nodes`]: Node
-/// [`cursor`]: lazy_tree::Cursor
-/// [`cursors`]: lazy_tree::Cursor
-/// [`cursor()`]: Parser::cursor()
+/// [`source`]: crate::a_bc::lexer::Data::source()
+/// [`tree`]: crate::lazy_tree::Tree
+/// [`node`]: crate::lazy_tree::Node
+/// [`nodes`]: crate::lazy_tree::Node
+/// [`cursor`]: crate::lazy_tree::Cursor
+/// [`cursors`]: crate::lazy_tree::Cursor
+/// [`cursor()`]: crate::Parser::cursor()
 /// [`module`]: crate::parser
 pub struct Parser<'source> {
     tree: Tree<'source>,
@@ -578,16 +580,16 @@ impl<'source, 'tree> Parser<'source> {
     ///
     /// See the [`parser`] documentation for more information.
     ///
-    /// [`parser`]: Parser
-    /// [`parser's`]: Parser
-    /// [`source`]: a_bc::lexer::Data::source()
-    /// [`tree`]: lazy_tree::Tree
-    /// [`node`]: Node
-    /// [`populated`]: lazy_tree::node::Callback
-    /// [`cursor`]: lazy_tree::Cursor
-    /// [`SourceIsEmpty`]: a_bc::error::Lexer::SourceIsEmpty
-    /// [`ExpectedButGot`]: a_bc::error::Token::ExpectedButGot
-    /// [`parser`]: Parser
+    /// [`parser`]: crate::Parser
+    /// [`parser's`]: crate::Parser
+    /// [`source`]: crate::a_bc::lexer::Data::source()
+    /// [`tree`]: crate::lazy_tree::Tree
+    /// [`node`]: crate::lazy_tree::Node
+    /// [`populated`]: crate::lazy_tree::node::Callback
+    /// [`cursor`]: crate::lazy_tree::Cursor
+    /// [`SourceIsEmpty`]: crate::a_bc::error::Lexer::SourceIsEmpty
+    /// [`ExpectedButGot`]: crate::a_bc::error::Token::ExpectedButGot
+    /// [`parser`]: crate::Parser
     pub fn new(source: &'source str) -> Result<Self, Error> {
         if source.is_empty() {
             return Err(error::Lexer::SourceIsEmpty.into());
@@ -637,13 +639,13 @@ impl<'source, 'tree> Parser<'source> {
     ///
     /// See the [`parser`] documentation for more information.
     ///
-    /// [`cursor`]: lazy_tree::Cursor
-    /// [`node`]: Node
-    /// [`parser's`]: Parser
-    /// [`tree`]: lazy_tree::Tree
-    /// [`callback`]: lazy_tree::node::Callback
-    /// [`source`]: a_bc::lexer::Data::source()
-    /// [`parser`]: Parser
+    /// [`cursor`]: crate::lazy_tree::Cursor
+    /// [`node`]: crate::lazy_tree::Node
+    /// [`parser's`]: crate::Parser
+    /// [`tree`]: crate::lazy_tree::Tree
+    /// [`callback`]: crate::lazy_tree::node::Callback
+    /// [`source`]: crate::a_bc::lexer::Data::source()
+    /// [`parser`]: crate::Parser
     pub fn cursor(&'tree self) -> Result<Cursor<'source, 'tree>, Error> {
         self.tree.cursor()
     }
@@ -652,10 +654,10 @@ impl<'source, 'tree> Parser<'source> {
     ///
     /// See the [`parser`] documentation for more information.
     ///
-    /// [`node`]: Node
-    /// [`population`]: lazy_tree::node::Callback
-    /// [`cursors`]: lazy_tree::Cursor
-    /// [`parser`]: Parser
+    /// [`node`]: crate::lazy_tree::Node
+    /// [`population`]: crate::lazy_tree::node::Callback
+    /// [`cursors`]: crate::lazy_tree::Cursor
+    /// [`parser`]: crate::Parser
     pub fn cancel(&self) {
         self.flag.cancel();
     }
@@ -674,7 +676,7 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use crate::{
-        error::{self, Error, Position, Relation},
+        a_bc::error::{self, Error, Position, Relation},
         lazy_tree::cursor::{Direction, Target},
         lexer::Json,
         parser::Parser,
