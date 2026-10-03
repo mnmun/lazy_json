@@ -1,27 +1,19 @@
 [package]
-name = "json"
-description = "the simplest json lexer"
+name = "lazy_json"
+description = "lexer and parser"
 version = "0.0.0"
 authors = ["mnmun <mnmnmun@proton.me>"]
 homepage = "https://github.com/mnmun/json"
 repository = "https://github.com/mnmun/json"
 readme = "README.md"
+exclude = ["flake.nix", "flake.lock"]
 license = "MIT"
 edition = "2024"
 
-[lib]
-path = "lib.rs"
-
-[[bench]]
-name = "json"
-harness = false
+[dependencies]
+a_bc = { git = "https://github.com/mnmun/a_bc", branch = "main" }
+getset = "0.1.7"
+lazy_tree = { git = "https://github.com/mnmun/lazy_tree", branch = "main" }
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
-criterion = { version = "0.5", features = [ "html_reports" ] }
-tokio = { version = "1.53.1", features = [ "rt", "rt-multi-thread", "macros", "time" ] }
-
-[dependencies]
-a_bc = { git = "https://github.com/mnmun/a_bc", branch = "main" }
-
-memchr = "2"
