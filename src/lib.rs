@@ -224,4 +224,4 @@ pub mod parser;
 pub use a_bc;
 pub use lazy_tree;
 pub use lexer::{Json, Lexer};
-pub use parser::{Bundle, Parser};
+pub use parser::{Bundle, Cursor, Parser};

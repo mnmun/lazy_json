@@ -522,7 +522,8 @@ fn populate<'source>(
 }
 
 type Tree<'source> = lazy_tree::Tree<Bundle<'source>, Error>;
-type Cursor<'source, 'tree> = lazy_tree::Cursor<'tree, Bundle<'source>, Error>;
+pub type Cursor<'source, 'tree> =
+    lazy_tree::Cursor<'tree, Bundle<'source>, Error>;
 
 /// # Lazy JSON `parser`
 ///
