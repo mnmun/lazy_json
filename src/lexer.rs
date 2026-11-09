@@ -913,8 +913,8 @@ impl<'source> Iterator for Lexer<'source> {
     ///
     /// See the [`lexer`] documentation for more information.
     ///
-    /// [`Tokens`]: a_bc::Token
-    /// [`token`]: a_bc::Token
+    /// [`Tokens`]: crate::a_bc::Token
+    /// [`token`]: crate::a_bc::Token
     /// [`kind`]: crate::JSON
     /// [`Colon`]: crate::JSON::Colon
     /// [`Comma`]: crate::JSON::Comma
@@ -922,9 +922,9 @@ impl<'source> Iterator for Lexer<'source> {
     /// [`Array`]: crate::JSON::Array
     /// [`String`]: crate::JSON::String
     /// [`Sequence`]: crate::JSON::Sequence
-    /// [`cancellation`]: a_bc::Cancel::cancel()
-    /// [`cursor`]: a_bc::lexer::Cursor
-    /// [`range`]: a_bc::lexer::Data::range()
+    /// [`cancellation`]: crate::a_bc::Cancel::cancel()
+    /// [`cursor`]: crate::a_bc::lexer::Cursor
+    /// [`range`]: crate::a_bc::lexer::Data::range()
     /// [whitespace characters]: u8::is_ascii_whitespace()
     /// [`lexer`]: crate::Lexer
     fn next(&mut self) -> Option<Self::Item> {

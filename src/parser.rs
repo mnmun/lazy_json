@@ -95,7 +95,7 @@ struct Cache {
 /// [`cursor`]: crate::lazy_tree::Cursor
 /// [`Deref`]: std::ops::Deref
 /// [`Parser::cursor()`]: crate::Parser::cursor()
-/// [lazy_tree]: lazy_tree
+/// [lazy_tree]: crate::lazy_tree
 pub struct Bundle {
     content: Content,
     kind: JSON,

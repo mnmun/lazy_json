@@ -8,7 +8,7 @@ Provides a JSON `lexer` and `parser`.
 
 Implemented using the [a_bc](https://github.com/mnmun/a_bc/tree/main) crate.
 
-Splits the JSON source data into tokens of the following `kinds`:
+Splits the JSON source data into tokens of the following kinds:
 
 - `Comma` - comma `,` character;
 - `Colon` - colon `:` character;
