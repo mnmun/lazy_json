@@ -294,6 +294,7 @@ impl InnerRange for JSON {
 /// [`expect()`]: crate::Lexer::expect()
 /// [`not_expect()`]: crate::Lexer::not_expect()
 /// [`inner_range()`]: crate::a_bc::traits::InnerRange
+/// [`a_bc::Lexer`]: crate::a_bc::Lexer
 pub struct Lexer<'source>(a_bc::Lexer<'source>);
 
 impl<'source> Deref for Lexer<'source> {
@@ -843,8 +844,8 @@ impl<'source> Lexer<'source> {
     ///
     /// See the [`lexer`] documentation for more information.
     ///
-    /// [`token`]: a_bc::Token
-    /// [`tokens`]: a_bc::Token
+    /// [`token`]: crate::a_bc::Token
+    /// [`tokens`]: crate::a_bc::Token
     /// [`kinds`]: crate::JSON
     /// [`kind`]: crate::JSON
     /// [`lexer`]: crate::Lexer
