@@ -124,6 +124,7 @@
         devShell = pkgs.mkShell {
           packages = with pkgs; [
             cargo
+            cargo-sort
             cargo-deadlinks
             lazygit
           ];

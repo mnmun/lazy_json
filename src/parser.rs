@@ -1,1863 +1,1036 @@
-//! # Lazy JSON parser
+//! # [`Parser`]
 //!
-//! ![](https://github.com/mnmun/images/blob/main/scissors.png?raw=true)
+//! ![](https://github.com/mnmun/images/blob/main/cart.png?raw=true)
 //!
-//! Provides a lazy JSON [`parser`] implemented using the lazy JSON [`lexer`]
-//! and the lazily [`populated`] [`tree`] from the [`lazy_tree`] crate.
-//!
-//! The [`parser`] represents the [`source`] data as a hierarchical structure of
-//! [`nodes`] and provides a [`cursors`] to traverse it. The [`parser`] does not
-//! build the whole [`tree`] at once: the [`nodes`] are [`populated`] lazily
-//! when visited by [`cursors`] and remain available only while they are needed.
-//!
-//! ```text
-//!    *Source data*               *Parsed tree*
-//!
-//! {                              *Source data*
-//!   "object": {                ┌───────┴───────┐
-//!     "string": "foo",       object          array
-//!     "number": 42         ┌───┴───┐     ┌─────┼─────┐
-//!   },                   string  number true false  null
-//!   "array": [             │       │
-//!     true,               foo      42
-//!     false,
-//!     null
-//!   ]
-//! }
-//! ```
-//!
-//! ## Use cases
-//!
-//! The [`parser`] may be beneficial for large JSON data with deep nesting, as
-//! it does not build the whole [`tree`] up front but [`creates`] [`nodes`]
-//! lazily, only when they are actually needed.
-//!
-//! ## Behavior
-//!
-//! The [`parser`] is implemented on top of the [`tree`] from the [`lazy_tree`]
-//! crate - a data structure that maintains a hierarchy of lazily [`populated`]
-//! [`nodes`] holding arbitrary [`value`].
-//!
-//! Each [`tree`] [`node`] stores a [`value`] of type [`Bundle`], which contains
-//! [`kind`] and [`content`].
-//!
-//! The tool for examining the [`source`] data is a [`cursor`], which traverses
-//! the [`tree`] and provides access to the [`value`] stored in the [`nodes`].
-//! To move between [`nodes`], the [`cursor`] provides the [`walk()`],
-//! [`jump()`] and [`go_to()`] methods.
-//!
-//! The [`parser's`] [`tree`] can have an unlimited number of [`cursors`]
-//! existing at the same time. [`Cursors`] can freely move between threads,
-//! enabling multithreaded analysis of the [`source`] data, but keep in mind
-//! that a [`cursor`] cannot outlive the [`tree`] from which it was created.
-//!
-//! ## Examples
-//!
-//! ![](https://github.com/mnmun/images/blob/main/bulb.png?raw=true)
-//!
-//! The following examples demonstrate JSON parsing and the resulting [`tree`]
-//! traversal using [`cursors`].
-//!
-//! ### Valid source
-//!
-//! Correctly formed [`source`] data can be traversed as follows:
-//!
-//! ```rust
-//! use pretty_assertions::assert_eq;
-//!
-//! use lazy_json::{
-//!     lazy_tree::cursor::{Direction, Target},
-//!     Json,
-//!     Parser,
-//! };
-//!
-//! //
-//! //             source
-//! //       ┌───────┴───────┐
-//! //     object          array
-//! //   ┌───┴───┐     ┌─────┼─────┐
-//! // string  number true false  null
-//! //   │       │
-//! //  foo      42
-//! //
-//! let source = r#"
-//! {
-//!   "object": {
-//!     "string": "foo",
-//!     "number": 42
-//!   },
-//!   "array": [
-//!     true,
-//!     false,
-//!     null
-//!   ]
-//! }
-//! "#;
-//!
-//! let parser = Parser::new(source).unwrap();
-//!
-//! // After creation, the cursor points to the tree root node:
-//! let mut cursor = parser.cursor().unwrap();
-//! assert_eq!(*cursor.value().kind(), Json::Object);
-//! assert_eq!(*cursor.value().content(), source);
-//! assert_eq!(
-//!     cursor.children().iter().map(|child|
-//!         *child.value().content()
-//!     ).collect::<Vec<&str>>(),
-//!     ["object", "array"]
-//! );
-//!
-//! // The cursor descends into the first child node of the root - `object`:
-//! assert!(cursor.walk(Direction::Down(Target::First)).unwrap());
-//! assert_eq!(*cursor.value().kind(), Json::Object);
-//! assert_eq!(*cursor.value().content(), "object");
-//! assert_eq!(
-//!     cursor.children().iter().map(|child|
-//!         *child.value().content()
-//!     ).collect::<Vec<&str>>(),
-//!     ["string", "number"]
-//! );
-//!
-//! // The cursor moves to the next sibling node - `array`:
-//! assert!(cursor.walk(Direction::Right).unwrap());
-//! assert_eq!(*cursor.value().kind(), Json::Array);
-//! assert_eq!(*cursor.value().content(), "array");
-//! assert_eq!(
-//!     cursor.children().iter().map(|child|
-//!         *child.value().content()
-//!     ).collect::<Vec<&str>>(),
-//!     ["true", "false", "null"]
-//! );
-//! ```
-//!
-//! ### Malformed value
-//!
-//! Traversing [`source`] data with a malformed object value:
-//!
-//! ```rust
-//! use pretty_assertions::assert_eq;
-//!
-//! use lazy_json::{
-//!     a_bc::error::{self, Relation, Position},
-//!     lazy_tree::cursor::{Direction, Target},
-//!     Json,
-//!     Parser,
-//! };
-//!
-//! //
-//! //             source
-//! //       ┌───────┴───────┐
-//! //     object          array
-//! //       │         ┌─────┼─────┐
-//! //      -X-       true false  null
-//! //
-//! let source = r#"
-//! {
-//!   "object": {
-//!       malformed object with unexpected token
-//!   },
-//!   "array": [
-//!     true,
-//!     false,
-//!     null
-//!   ]
-//! }
-//! "#;
-//!
-//! let parser = Parser::new(source).unwrap();
-//!
-//! // After creation, the cursor points to the tree root node:
-//! let mut cursor = parser.cursor().unwrap();
-//! assert_eq!(*cursor.value().kind(), Json::Object);
-//! assert_eq!(*cursor.value().content(), source);
-//! assert_eq!(
-//!     cursor.children().iter().map(|child|
-//!         *child.value().content()
-//!     ).collect::<Vec<&str>>(),
-//!     ["object", "array"]
-//! );
-//!
-//! // An attempt to descend into the malformed object node ends with an error:
-//! assert!(cursor.walk(Direction::Down(Target::First)).is_err_and(|e|
-//!     e == error::Token::ExpectedButGot {
-//!         expected: [Json::String].into(),
-//!         got: Some(Json::Sequence),
-//!         location: (Relation::At, Position::new(4, 7))
-//!     }.into()
-//! ));
-//!
-//! // The cursor descends into the last child node of the root - `array`:
-//! assert!(cursor.walk(Direction::Down(Target::Last)).unwrap());
-//! assert_eq!(*cursor.value().kind(), Json::Array);
-//! assert_eq!(*cursor.value().content(), "array");
-//! assert_eq!(
-//!     cursor.children().iter().map(|child|
-//!         *child.value().content()
-//!     ).collect::<Vec<&str>>(),
-//!     ["true", "false", "null"]
-//! );
-//!
-//! // The cursor descends into the leaf child node of the `array` by
-//! // index - `false`:
-//! assert!(cursor.walk(Direction::Down(Target::Index(1))).unwrap());
-//! assert_eq!(*cursor.value().kind(), Json::Sequence);
-//! assert_eq!(*cursor.value().content(), "false");
-//! assert!(cursor.children().is_empty());
-//! ```
-//!
-//! ### Empty [`source`] data
-//!
-//! A [`parser`] cannot be created over empty [`source`] data:
-//!
-//! ```rust
-//! use pretty_assertions::assert_eq;
-//!
-//! use lazy_json::{
-//!     a_bc::error::{self, Relation, Position},
-//!     lazy_tree::cursor::{Direction, Target},
-//!     Json,
-//!     Parser,
-//! };
-//!
-//! let empty_source = "";
-//!
-//! // An attempt to create a parser over empty source data ends with an error:
-//! assert!(Parser::new(empty_source).is_err_and(|e|
-//!     e == error::Lexer::SourceIsEmpty.into()
-//! ));
-//! ```
+//! Defines a [`parser`] that represents a JSON string data as a [`tree`]
+//! of lazily-created [`nodes`].
 //!
 //! ---
 //!
 //! See the [`crate`] documentation for more information.
 //!
-//! [`lexer`]: crate::Lexer
-//! [`lazy_tree`]: crate::lazy_tree
-//! [`tree`]: crate::lazy_tree::Tree
 //! [`parser`]: crate::Parser
-//! [`parser's`]: crate::Parser
-//! [`source`]: crate::a_bc::lexer::Data::source()
-//! [`value`]: crate::lazy_tree::Node::value()
-//! [`node`]: crate::lazy_tree::Node
+//! [`tree`]: crate::lazy_tree::Tree
 //! [`nodes`]: crate::lazy_tree::Node
-//! [`cursor`]: crate::lazy_tree::Cursor
-//! [`cursors`]: crate::lazy_tree::Cursor
-//! [`Cursors`]: crate::lazy_tree::Cursor
-//! [`populated`]: crate::lazy_tree::node::Callback
-//! [`creates`]: crate::lazy_tree::node::Callback
-//! [`kind`]: crate::parser::Bundle::kind()
-//! [`content`]: crate::parser::Bundle::content()
-//! [`walk()`]: crate::lazy_tree::Cursor::walk()
-//! [`jump()`]: crate::lazy_tree::Cursor::jump()
-//! [`go_to()`]: crate::lazy_tree::Cursor::go_to()
 
-use std::{borrow::Cow, ops::Range};
+use std::{borrow::Cow, fmt, ops::Range, sync::Arc};
 
-use a_bc::error::row_col_pos;
-use getset::Getters;
+use a_bc::error::{self, Error};
+use lazy_tree::Cursor;
 
-use crate::{
-    a_bc::{
-        self, Cancel,
-        error::{self, Relation},
-    },
-    lazy_tree::Node,
-    lexer::{Json, Lexer},
-};
+use crate::{JSON, lexer};
 
-type Error = error::Error<Json>;
-type Link<'source> = lazy_tree::node::Link<Bundle<'source>, Error>;
-type Children<'source> = Box<[Link<'source>]>;
+/// # How often should control be yielded back to the [`tokio`] runtime
+const YIELD_INTERVAL: usize = 1;
 
-/// # [`Node`] [`value`]
+const OBJECT: &str = "{...}";
+const ARRAY: &str = "[...]";
+
+enum Content {
+    Object,
+    Array,
+    Slice(Range<usize>),
+}
+
+struct Cache {
+    checkpoints: Option<Box<[usize]>>,
+    interval: usize,
+}
+
+/// # [`Node`] `content` and its `kind`
 ///
-/// ![](https://github.com/mnmun/images/blob/main/book.png?raw=true)
+/// ![](https://github.com/mnmun/images/blob/main/cherry.png?raw=true)
 ///
-/// The data stored in each [`node`] of the [`tree`].
+/// The [`parser`] is implemented on top of a [`tree`] of lazily-created
+/// [`nodes`] from the [lazy_tree] crate, and the `Bundle` acts as a data
+/// type stored in each [`node`] of the [`tree`].
 ///
-/// Use the following methods to access the data:
+/// The `content` field is represented as a string slice `&str` and can be
+/// accessed using the [`content()`] method. When constructing [`nodes`], a
+/// [`lexer`] is used to categorize tokens into [`JSON`] `kinds`; consequently,
+/// the [`node`] `kind` is also represented with a [`JSON`] enumeration and
+/// can be accessed using the [`kind()`] method.
 ///
-/// - [`kind()`];
-/// - [`content()`].
+/// Access to the getter methods of this structure is provided via a [`cursor`]
+/// that implements the [`Deref`] trait, targeting the `Bundle`. A [`cursor`]
+/// can be created using the [`Parser::cursor()`] method:
+///
+/// ```rust
+/// # use pretty_assertions::assert_eq;
+/// #
+/// use lazy_json::{
+///     JSON, Parser,
+///     parser::{Builder, Bundle},
+///     a_bc::Error,
+///     lazy_tree::{Cursor, cursor::{Direction, Target}}
+/// };
+///
+/// # #[tokio::main]
+/// # async fn main() {
+/// let source: &'static str = r#" "foo" "#;
+///
+/// let parser: Parser = Builder::new(source).build().unwrap();
+///
+/// let mut cursor: Cursor<Bundle, Error<JSON>> = parser.cursor().await.unwrap();
+///
+/// cursor.walk(Direction::Down(Target::First)).await.unwrap();
+/// assert_eq!(cursor.kind(), &JSON::String);
+/// assert_eq!(cursor.content(), "foo");
+/// # }
+/// ```
 ///
 /// ---
 ///
 /// See the [`module`] documentation for more information.
 ///
-/// [`value`]: crate::lazy_tree::Node::value()
-/// [`node`]: crate::lazy_tree::Node
-/// [`tree`]: crate::lazy_tree::Tree
-/// [`kind()`]: crate::parser::Bundle::kind()
-/// [`content()`]: crate::parser::Bundle::content()
 /// [`module`]: crate::parser
-#[derive(Debug, Clone, Getters, PartialEq, Eq)]
-pub struct Bundle<'source> {
-    #[getset(get = "pub")]
-    kind: Json,
-    #[getset(get = "pub")]
-    content: &'source str,
+/// [`lexer`]: crate::Lexer
+/// [`Node`]: crate::lazy_tree::Node
+/// [`node`]: crate::lazy_tree::Node
+/// [`nodes`]: crate::lazy_tree::Node
+/// [`content()`]: crate::Bundle::content()
+/// [`kind()`]: crate::Bundle::kind()
+/// [`parser`]: crate::Parser
+/// [`tree`]: crate::lazy_tree::Tree
+/// [`cursor`]: crate::lazy_tree::Cursor
+/// [`Deref`]: std::ops::Deref
+/// [`Parser::cursor()`]: crate::Parser::cursor()
+/// [lazy_tree]: lazy_tree
+pub struct Bundle {
+    content: Content,
+    kind: JSON,
 
-    flag: Cancel,
-    source: &'source str,
+    flag: a_bc::Cancel,
+    source: Arc<Cow<'static, str>>,
     range: Option<Range<usize>>,
+
+    cache: Option<Cache>,
 }
 
-impl<'source> Bundle<'source> {
+impl fmt::Debug for Bundle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Bundle")
+            .field("kind", &self.kind)
+            .field("content", &self.content())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Bundle {
     fn new(
-        kind: Json,
-        content: &'source str,
-        flag: Cancel,
-        source: &'source str,
+        content: Content,
+        kind: JSON,
+
+        flag: a_bc::Cancel,
+        source: Arc<Cow<'static, str>>,
         range: impl Into<Option<Range<usize>>>,
+
+        cache_interval: Option<usize>,
     ) -> Self {
         let range = range.into();
+        let cache = cache_interval.map(|interval| Cache {
+            checkpoints: None,
+            interval,
+        });
 
         Self {
             kind,
             content,
+
             flag,
             source,
             range,
+
+            cache,
+        }
+    }
+
+    /// # [`Node`] [`content`] kind
+    ///
+    /// Determined by the [`lexer`] during the execution of a [`query`]
+    /// callback.
+    ///
+    /// ---
+    ///
+    /// See the [`bundle`] documentation for more information.
+    ///
+    /// [`bundle`]: crate::Bundle
+    /// [`Node`]: crate::lazy_tree::Node
+    /// [`content`]: crate::Bundle::content()
+    /// [`lexer`]: crate::Lexer
+    /// [`query`]: crate::lazy_tree::node::Callbacks::query()
+    pub fn kind(&self) -> &JSON {
+        &self.kind
+    }
+
+    /// # [`Node`] `content`
+    ///
+    /// Determined by the [`lexer`] during the execution of a [`query`]
+    /// callback.
+    ///
+    /// ---
+    ///
+    /// See the [`bundle`] documentation for more information.
+    ///
+    /// [`bundle`]: crate::Bundle
+    /// [`Node`]: crate::lazy_tree::Node
+    /// [`lexer`]: crate::Lexer
+    /// [`query`]: crate::lazy_tree::node::Callbacks::query()
+    pub fn content(&self) -> &str {
+        match &self.content {
+            Content::Object => OBJECT,
+            Content::Array => ARRAY,
+            Content::Slice(range) => &self.source[range.clone()],
         }
     }
 }
 
-fn populate<'source>(
-    parent: &Bundle<'source>,
-) -> Result<Children<'source>, Error> {
-    let range = if let Some(range) = &parent.range {
-        range
-    } else {
-        return Ok(Box::default());
-    };
+struct Callbacks;
 
-    let source = parent.source;
-    let flag = parent.flag.clone();
+#[lazy_tree::async_trait]
+impl lazy_tree::node::Callbacks<Bundle, Error<JSON>> for Callbacks {
+    async fn total(&self, parent: &mut Bundle) -> Result<usize, Error<JSON>> {
+        let range = if let Some(range) = &parent.range {
+            range
+        } else {
+            return Ok(0);
+        };
 
-    let mut lexer = Lexer::new(
-        a_bc::lexer::Builder::new(Cow::Borrowed(source.as_bytes()))
-            .with_range(range.clone())
-            .build()?,
-    );
+        let mut lexer =
+            lexer::Builder::new(Cow::Borrowed(parent.source.as_bytes()))
+                .with_range(range.clone())
+                .with_flag(parent.flag.clone())
+                .build()?;
 
-    let token = lexer.expect(&[
-        Json::Object,
-        Json::Array,
-        Json::String,
-        Json::Sequence,
-    ])?;
+        let token = lexer.expect(&[
+            JSON::Object,
+            JSON::Array,
+            JSON::String,
+            JSON::Sequence,
+        ])?;
 
-    let mut children = vec![];
+        let count = match *token.kind() {
+            JSON::Object => count::object(parent, token).await?,
+            JSON::Array => count::array(parent, token).await?,
+            JSON::String | JSON::Sequence => 1,
+            _ => unreachable!(),
+        };
 
-    match *token.kind() {
-        Json::Object => {
-            let mut lexer = Lexer::new(
-                a_bc::lexer::Builder::new(Cow::Borrowed(source.as_bytes()))
-                    .with_flag(flag.clone())
-                    .with_range(token.inner_range().unwrap())
-                    .build()?,
-            );
-
-            let mut object_is_empty = true;
-
-            loop {
-                let key_token = match lexer.expect(&[Json::String]) {
-                    Ok(key_token) => key_token,
-                    Err(e) => {
-                        if let Error::Token(error::Token::ExpectedButGot {
-                            got,
-                            ..
-                        }) = e
-                            && got.is_none()
-                            && object_is_empty
-                        {
-                            break;
-                        } else {
-                            return Err(e);
-                        }
-                    }
-                };
-
-                object_is_empty = false;
-
-                lexer.expect(&[Json::Colon])?;
-
-                let value_token = lexer.expect(&[
-                    Json::String,
-                    Json::Sequence,
-                    Json::Object,
-                    Json::Array,
-                ])?;
-
-                children.push({
-                    let bundle = Bundle::new(
-                        *value_token.kind(),
-                        &source[key_token.inner_range().unwrap()],
-                        flag.clone(),
-                        source,
-                        value_token.range().clone(),
-                    );
-
-                    Node::new(bundle, populate)
-                });
-
-                match lexer.expect(&[Json::Comma]) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        if let Error::Token(error::Token::ExpectedButGot {
-                            got,
-                            ..
-                        }) = e
-                            && got.is_none()
-                        {
-                            break;
-                        } else {
-                            return Err(e);
-                        }
-                    }
-                }
-            }
-        }
-        Json::Array => {
-            let mut lexer = Lexer::new(
-                a_bc::lexer::Builder::new(source.as_bytes())
-                    .with_flag(flag.clone())
-                    .with_range(token.inner_range().unwrap())
-                    .build()?,
-            );
-
-            let mut array_is_empty = true;
-
-            loop {
-                let value_token =
-                    match lexer.not_expect(&[Json::Comma, Json::Colon]) {
-                        Ok(token) => token,
-                        Err(e) => {
-                            if let Error::Token(
-                                error::Token::NotExpectedButGot { got, .. },
-                            ) = e
-                                && got.is_none()
-                                && array_is_empty
-                            {
-                                break;
-                            } else {
-                                return Err(e);
-                            }
-                        }
-                    };
-
-                array_is_empty = false;
-
-                children.push({
-                    let (value, range) = match *value_token.kind() {
-                        Json::Object => {
-                            ("{...}", Some(value_token.range().clone()))
-                        }
-                        Json::Array => {
-                            ("[...]", Some(value_token.range().clone()))
-                        }
-                        Json::String => {
-                            (&source[value_token.inner_range().unwrap()], None)
-                        }
-                        Json::Sequence => {
-                            (&source[value_token.range().clone()], None)
-                        }
-                        _ => unreachable!(),
-                    };
-
-                    let bundle = Bundle::new(
-                        *value_token.kind(),
-                        value,
-                        flag.clone(),
-                        source,
-                        range,
-                    );
-
-                    Node::new(bundle, populate)
-                });
-
-                match lexer.expect(&[Json::Comma]) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        if let Error::Token(error::Token::ExpectedButGot {
-                            got,
-                            ..
-                        }) = e
-                            && got.is_none()
-                        {
-                            break;
-                        } else {
-                            return Err(e);
-                        }
-                    }
-                }
-            }
-        }
-        Json::String => children.push({
-            let bundle = Bundle::new(
-                Json::String,
-                &source[token.inner_range().unwrap()],
-                flag.clone(),
-                source,
-                None,
-            );
-
-            Node::new(bundle, populate)
-        }),
-        Json::Sequence => children.push({
-            let bundle = Bundle::new(
-                Json::Sequence,
-                &source[token.range().clone()],
-                flag.clone(),
-                source,
-                None,
-            );
-
-            Node::new(bundle, populate)
-        }),
-        _ => unreachable!(),
+        Ok(count)
     }
 
-    Ok(children.into_boxed_slice())
+    async fn query(
+        &self,
+        parent: &mut Bundle,
+        index: usize,
+    ) -> Result<lazy_tree::node::Builder<Bundle, Error<JSON>>, Error<JSON>>
+    {
+        let range = parent.range.as_ref().unwrap();
+
+        let mut lexer =
+            lexer::Builder::new(Cow::Borrowed(parent.source.as_bytes()))
+                .with_range(range.clone())
+                .with_flag(parent.flag.clone())
+                .build()?;
+
+        let token = lexer.expect(&[
+            JSON::Object,
+            JSON::Array,
+            JSON::String,
+            JSON::Sequence,
+        ])?;
+
+        match *token.kind() {
+            JSON::Object => query::object(parent, token, index).await,
+            JSON::Array => query::array(parent, token, index).await,
+            JSON::String => query::string(parent, token),
+            JSON::Sequence => query::sequence(parent, token),
+            _ => unreachable!(),
+        }
+    }
 }
 
-type Tree<'source> = lazy_tree::Tree<Bundle<'source>, Error>;
-pub type Cursor<'source, 'tree> =
-    lazy_tree::Cursor<'tree, Bundle<'source>, Error>;
-
-/// # Lazy JSON `parser`
+/// # `Parser`
 ///
-/// ![](https://github.com/mnmun/images/blob/main/scissors.png?raw=true)
+/// ![](https://github.com/mnmun/images/blob/main/cart.png?raw=true)
 ///
-/// Converts the [`source`] data into a lazily populated [`tree`] of [`nodes`].
+/// Represents a JSON string data as a [`tree`] of lazily-created [`nodes`]:
 ///
-/// ## Traversal
+/// ```text
+///    *Source data*                *Parsed tree*
 ///
-/// The `parser's` [`tree`] is traversed using [`cursors`], which are created
-/// with the [`cursor()`] method. After creation, a [`cursor`] points to the
-/// `root` [`node`] of the [`tree`].
+/// {                               *Source data*
+///   "object": {                ┌────────┴────────┐
+///     "string": "foo",       object            array
+///     "number": 42         ┌───┴───┐       ┌─────┼─────┐
+///   },                   string  number   true false  null
+///   "array": [             │       │
+///     true,               foo      42
+///     false,
+///     null
+///   ]
+/// }
+/// ```
 ///
-/// The [`tree`] can have an unlimited number of simultaneously existing
-/// [`cursors`], which can freely move between threads.
+/// [`Nodes`] are created automatically when the [`cursor`] needs to access them
+/// and are deleted when they are no longer used.
 ///
-/// Keep in mind that a [`cursor`] cannot outlive the `parser's` [`tree`].
+/// Implemented using the [lazy_tree] crate for the [tokio] runtime.
 ///
 /// ## Creation
 ///
-/// Use the [`Parser::new()`] method to create a `parser`.
+/// Can be created using the [`builder`]:
+///
+/// ```rust
+/// use lazy_json::{Parser, parser::Builder};
+///
+/// let source: &'static str = r#" { "foo": "bar" } "#;
+///
+/// let parser: Parser = Builder::new(source).build().unwrap();
+/// ```
+///
+/// ## Traversing
+///
+/// The [`tree`] of [`nodes`] is traversed using a [`cursor`], which can move
+/// between [`nodes`] and provides access to the [`bundle`] stored in the
+/// [`node`] it currently points to.
+///
+/// ## Caching
+///
+/// When creating the `i-th` child [`node`] using a [`cursor`], it is necessary
+/// to sequentially iterate through the [`tokens`] of the source data fragment
+/// that defines the child [`nodes`], continuing until the [`tokens`]
+/// corresponding to the `i-th` child [`node`] are reached. In other words, the
+/// time required to create the `i-th` child node scales as `O(n)`, where `n`
+/// is the `total` number of child [`nodes`] for a given parent [`node`] (see
+/// the [`total`] callback).
+///
+/// To address this issue, each [`tree`] [`node`] can hold an optional cache -
+/// a sequence of saved [`lexer`] positions within the source data, which can
+/// be accessed in constant time, `O(1)`. The caching process is defined by an
+/// `interval` - specifying how many `name:value` [`token`] pairs should elapse
+/// before a position is cached, and is performed once during the execution of
+/// the [`total`] callback.
+///
+/// Enabling caching increases the amount of memory used per [`node`] in the
+/// [`tree`], but reduces the time required to create a new [`node`]. The
+/// smaller the caching interval, the higher the memory overhead and the
+/// shorter the time needed to create a new [`node`]. The minimum caching
+/// interval is 1. If a caching interval of 0 was specified, it is automatically
+/// changed to 1.
+///
+/// ## Cancellation
+///
+/// New [`nodes`] are created via a [`query`] callback, which iterates through
+/// the source data; for large sources, this process can be quite
+/// time-consuming. Since the [`cursors`] that trigger this callback may operate
+/// in separate threads, the `parser` includes a mechanism to stop the execution
+/// of the [`query`] callbacks - [`Parser::stop()`]. This method is called
+/// automatically on the `parser` drop, but it can also be invoked manually -
+/// for instance, when an application needs to shut down and all [`cursors`]
+/// across all threads must be stopped.
+///
+/// ## Examples
+///
+/// ![](https://github.com/mnmun/images/blob/main/bulb.png?raw=true)
+///
+/// [`Cursor`] pointing to the `root` [`node`] of a [`tree`] can be created
+/// using the [`cursor()`] method. The `root` [`node`] [`bundle`] holds the
+/// input JSON string data as [`content`] with corresponding [`kind`]:
+///
+/// ```rust
+/// # use pretty_assertions::assert_eq;
+/// #
+/// use lazy_json::{
+///     JSON, Parser,
+///     parser::{Builder, Bundle},
+///     a_bc::Error,
+///     lazy_tree::Cursor,
+/// };
+///
+/// # #[tokio::main]
+/// # async fn main() {
+/// let source: &'static str = r#"{ "foo": "bar" }"#;
+///
+/// let parser: Parser = Builder::new(source).build().unwrap();
+///
+/// let cursor: Cursor<Bundle, Error<JSON>> = parser.cursor().await.unwrap();
+/// assert_eq!(cursor.kind(), &JSON::Object);
+/// assert_eq!(cursor.content(), source);
+/// # }
+/// ```
+///
+/// `Parser` may have multiple [`cursors`] at the same time, pointing to
+/// different [`nodes`] and moving independently of each other. For moving
+/// cursors, there are the [`walk()`], [`jump()`] and [`go_to()`] methods:
+///
+/// ```rust
+/// # use pretty_assertions::assert_eq;
+/// #
+/// use lazy_json::{
+///     JSON, Parser,
+///     parser::{Builder, Bundle},
+///     a_bc::Error,
+///     lazy_tree::{Cursor, cursor::{Direction, Target}},
+/// };
+///
+/// # #[tokio::main]
+/// # async fn main() {
+/// //
+/// //              source
+/// //       ┌────────┴────────┐
+/// //     object            array
+/// //   ┌───┴───┐       ┌─────┼─────┐
+/// // string  number   true false  null
+/// //   │       │
+/// //  foo      42
+/// //
+/// let source: &'static str = r#"
+/// {
+///   "object": {
+///     "string": "foo",
+///     "number": 42
+///   },
+///   "array": [
+///     true,
+///     false,
+///     null
+///   ]
+/// }
+/// "#;
+///
+/// let parser: Parser = Builder::new(source).build().unwrap();
+///
+/// let mut cursor_0: Cursor<Bundle, Error<JSON>> =
+///     parser.cursor().await.unwrap();
+/// cursor_0.walk(Direction::Down(Target::First)).await.unwrap();
+/// assert_eq!(cursor_0.kind(), &JSON::Object);
+/// assert_eq!(cursor_0.content(), "object");
+///
+/// let mut cursor_1: Cursor<Bundle, Error<JSON>> =
+///     parser.cursor().await.unwrap();
+/// cursor_1.jump(Direction::Up).await.unwrap();
+/// assert_eq!(cursor_1.kind(), &JSON::String);
+/// assert_eq!(cursor_1.content(), "foo");
+///
+/// let mut cursor_2: Cursor<Bundle, Error<JSON>> =
+///     parser.cursor().await.unwrap();
+/// cursor_2.go_to(&[0, 0, 1, 0]).await.unwrap();
+/// assert_eq!(cursor_2.kind(), &JSON::Sequence);
+/// assert_eq!(cursor_2.content(), "42");
+/// # }
+/// ```
+///
+/// [`Cursors`] implement the [`Send`] trait, so they can be sent between
+/// threads safely. Each [`cursor`] remains borrowed from its `parser` and
+/// cannot outlive it:
+///
+/// ```rust
+/// # use std::sync::Arc;
+/// #
+/// # use pretty_assertions::assert_eq;
+/// #
+/// use lazy_json::{
+///     JSON, Parser,
+///     parser::{Builder, Bundle},
+///     a_bc::Error,
+///     lazy_tree::{Cursor, cursor::{Direction, Target}},
+/// };
+///
+/// # #[tokio::main]
+/// # async fn main() {
+/// //
+/// //              source
+/// //       ┌────────┴────────┐
+/// //     object            array
+/// //   ┌───┴───┐       ┌─────┼─────┐
+/// // string  number   true false  null
+/// //   │       │
+/// //  foo      42
+/// //
+/// let source: &'static str = r#"
+/// {
+///   "object": {
+///     "string": "foo",
+///     "number": 42
+///   },
+///   "array": [
+///     true,
+///     false,
+///     null
+///   ]
+/// }
+/// "#;
+///
+/// let parser: Arc<Parser> = Arc::new(Builder::new(source).build().unwrap());
+///
+/// let task_a = tokio::spawn({
+///     let parser = parser.clone();
+///
+///     async move {
+///         let mut cursor: Cursor<Bundle, Error<JSON>> =
+///             parser.cursor().await.unwrap();
+///         cursor.walk(Direction::Down(Target::First)).await.unwrap();
+///
+///         for _ in 0..10 {
+///             cursor.jump(Direction::Right).await.unwrap();
+///         }
+///     }
+/// });
+///
+/// let task_b = tokio::spawn({
+///     let parser = parser.clone();
+///
+///     async move {
+///         let mut cursor: Cursor<Bundle, Error<JSON>> =
+///             parser.cursor().await.unwrap();
+///         cursor.walk(Direction::Down(Target::Last)).await.unwrap();
+///
+///         for _ in 0..10 {
+///             cursor.jump(Direction::Left).await.unwrap();
+///         }
+///     }
+/// });
+///
+/// let (result_a, result_b) = tokio::join!(task_a, task_b);
+/// result_a.unwrap();
+/// result_b.unwrap();
+/// # }
+/// ```
 ///
 /// ---
 ///
 /// See the [`module`] documentation for more information.
 ///
-/// [`source`]: crate::a_bc::lexer::Data::source()
-/// [`tree`]: crate::lazy_tree::Tree
-/// [`node`]: crate::lazy_tree::Node
-/// [`nodes`]: crate::lazy_tree::Node
-/// [`cursor`]: crate::lazy_tree::Cursor
-/// [`cursors`]: crate::lazy_tree::Cursor
-/// [`cursor()`]: crate::Parser::cursor()
 /// [`module`]: crate::parser
-pub struct Parser<'source> {
-    tree: Tree<'source>,
-    flag: Cancel,
+/// [`tree`]: crate::lazy_tree::Tree
+/// [`nodes`]: crate::lazy_tree::Node
+/// [`node`]: crate::lazy_tree::Node
+/// [`cursor`]: crate::lazy_tree::Cursor
+/// [`Cursor`]: crate::lazy_tree::Cursor
+/// [`Cursors`]: crate::lazy_tree::Cursor
+/// [`walk()`]: crate::lazy_tree::Cursor::walk()
+/// [`jump()`]: crate::lazy_tree::Cursor::jump()
+/// [`go_to()`]: crate::lazy_tree::Cursor::go_to()
+/// [`cursor()`]: crate::Parser::cursor()
+/// [`content`]: crate::Bundle::content()
+/// [`kind`]: crate::Bundle::kind()
+/// [`bundle`]: crate::Bundle
+/// [`builder`]: crate::parser::Builder
+/// [`Send`]: std::marker::Send
+/// [`tokens`]: crate::a_bc::Token
+/// [`token`]: crate::a_bc::Token
+/// [`lexer`]: crate::Lexer
+/// [`total`]: crate::lazy_tree::node::Callbacks::total()
+/// [`query`]: crate::lazy_tree::node::Callbacks::query()
+/// [`Parser::stop()`]: crate::Parser::stop()
+pub struct Parser {
+    tree: lazy_tree::Tree<Bundle, Error<JSON>>,
+    flag: a_bc::Cancel,
 }
 
-impl<'source, 'tree> Parser<'source> {
-    /// # Creates a [`parser`] over the [`source`] data
-    ///
-    /// Constructs the [`tree`] `root` [`node`] from the provided [`source`].
-    ///
-    /// The [`parser's`] [`tree`] is not [`populated`] at this point: the
-    /// children of the `root` [`node`] are created lazily, on the first visit
-    /// by a [`cursor`].
-    ///
-    /// ## Errors
-    ///
-    /// - [`SourceIsEmpty`] - the provided [`source`] is empty;
-    /// - [`ExpectedButGot`] - the provided [`source`] contains no JSON values.
-    ///
-    /// ---
+impl Parser {
+    /// # Creates a [`cursor`] at the `root` [`node`]
     ///
     /// See the [`parser`] documentation for more information.
     ///
     /// [`parser`]: crate::Parser
-    /// [`parser's`]: crate::Parser
-    /// [`source`]: crate::a_bc::lexer::Data::source()
-    /// [`tree`]: crate::lazy_tree::Tree
-    /// [`node`]: crate::lazy_tree::Node
-    /// [`populated`]: crate::lazy_tree::node::Callback
-    /// [`cursor`]: crate::lazy_tree::Cursor
-    /// [`SourceIsEmpty`]: crate::a_bc::error::Lexer::SourceIsEmpty
-    /// [`ExpectedButGot`]: crate::a_bc::error::Token::ExpectedButGot
-    /// [`parser`]: crate::Parser
-    pub fn new(source: &'source str) -> Result<Self, Error> {
-        if source.is_empty() {
-            return Err(error::Lexer::SourceIsEmpty.into());
-        }
-
-        let kind = match source
-            .as_bytes()
-            .iter()
-            .find(|c| !c.is_ascii_whitespace())
-        {
-            Some(b'{') => Json::Object,
-            Some(b'[') => Json::Array,
-            Some(b'"') => Json::String,
-            Some(_) => Json::Sequence,
-            None => {
-                return Err(error::Token::ExpectedButGot {
-                    expected: [
-                        Json::Object,
-                        Json::Array,
-                        Json::String,
-                        Json::Sequence,
-                    ]
-                    .into(),
-                    got: None,
-                    location: (Relation::After, row_col_pos(source.as_bytes())),
-                }
-                .into());
-            }
-        };
-
-        let flag = Cancel::new();
-
-        let bundle =
-            Bundle::new(kind, source, flag.clone(), source, 0..source.len());
-
-        let tree = lazy_tree::Tree::new(Node::new(bundle, populate));
-
-        Ok(Self { tree, flag })
-    }
-
-    /// # Creates a [`cursor`] at the `root` [`node`] of the [`parser's`] [`tree`]
-    ///
-    /// Returns the population [`callback`] error unchanged if the children of
-    /// the `root` [`node`] cannot be populated from the [`source`] data.
-    ///
-    /// ---
-    ///
-    /// See the [`parser`] documentation for more information.
-    ///
     /// [`cursor`]: crate::lazy_tree::Cursor
     /// [`node`]: crate::lazy_tree::Node
-    /// [`parser's`]: crate::Parser
-    /// [`tree`]: crate::lazy_tree::Tree
-    /// [`callback`]: crate::lazy_tree::node::Callback
-    /// [`source`]: crate::a_bc::lexer::Data::source()
-    /// [`parser`]: crate::Parser
-    pub fn cursor(&'tree self) -> Result<Cursor<'source, 'tree>, Error> {
-        self.tree.cursor()
+    pub async fn cursor<'parser>(
+        &'parser self,
+    ) -> Result<Cursor<'parser, Bundle, Error<JSON>>, Error<JSON>> {
+        self.tree.cursor().await
     }
 
-    /// # Terminates [`node`] [`population`] by all [`cursors`] across all threads
+    /// # Stops the creation of new [`nodes`] for all its [`cursors`]
     ///
     /// See the [`parser`] documentation for more information.
     ///
-    /// [`node`]: crate::lazy_tree::Node
-    /// [`population`]: crate::lazy_tree::node::Callback
+    /// [`parser`]: crate::Parser
+    /// [`nodes`]: crate::lazy_tree::Node
     /// [`cursors`]: crate::lazy_tree::Cursor
-    /// [`parser`]: crate::Parser
-    pub fn cancel(&self) {
+    pub fn stop(&self) {
         self.flag.cancel();
     }
 }
 
-impl Drop for Parser<'_> {
+impl Drop for Parser {
     fn drop(&mut self) {
-        self.cancel();
+        self.stop();
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::thread;
+/// # [`Parser`] `builder`
+///
+/// ![](https://github.com/mnmun/images/blob/main/road_work.png?raw=true)
+///
+/// Holds the data used for the [`parser`] creation.
+///
+/// The `builder` makes it possible to specify an optional caching interval
+/// using the [`with_cache_interval()`] and [`set_cache_interval()`] methods.
+/// By default, the cache interval value is set to `None`. See the [`parser`]
+/// documentation for more information about caching.
+///
+/// ## Creation
+///
+/// Can be created using the [`Builder::new()`] method.
+///
+/// ## Build
+///
+/// After setting all the necessary fields, call the [`build()`] method to get
+/// a [`parser`] instance.
+///
+/// ---
+///
+/// See the [`parser`] documentation for more information.
+///
+/// [`parser`]: crate::Parser
+/// [`with_cache_interval()`]: crate::parser::Builder::with_cache_interval()
+/// [`set_cache_interval()`]: crate::parser::Builder::set_cache_interval()
+/// [`Builder::new()`]: crate::parser::Builder::new()
+/// [`build()`]: Builder::build()
+#[derive(Debug, Clone)]
+pub struct Builder {
+    source: Arc<Cow<'static, str>>,
+    cache_interval: Option<usize>,
+}
 
-    use pretty_assertions::assert_eq;
+impl Builder {
+    /// See the [`parser`] documentation for more information about caching.
+    ///
+    /// [`parser`]: crate::Parser
+    #[must_use = "method returns the modified value"]
+    pub fn with_cache_interval(
+        mut self,
+        value: impl Into<Option<usize>>,
+    ) -> Self {
+        self.cache_interval = value.into();
+        self
+    }
+}
+
+impl Builder {
+    /// See the [`parser`] documentation for more information about caching.
+    ///
+    /// [`parser`]: crate::Parser
+    pub fn set_cache_interval(
+        &mut self,
+        value: impl Into<Option<usize>>,
+    ) -> &mut Self {
+        self.cache_interval = value.into();
+        self
+    }
+}
+
+impl Builder {
+    /// # Creates a new [`builder`] over the `source`
+    ///
+    /// By default, the cache interval value is set to `None`.
+    ///
+    /// ---
+    ///
+    /// See the [`builder`] documentation for more information.
+    ///
+    /// [`builder`]: crate::parser::Builder
+    pub fn new(source: impl Into<Cow<'static, str>>) -> Self {
+        Self {
+            source: Arc::new(source.into()),
+            cache_interval: None,
+        }
+    }
+
+    /// # Builds a configured [`parser`]
+    ///
+    /// Consumes `self` and moves all configuration fields into the resulting
+    /// structure.
+    ///
+    /// Returns the [`a_bc::error::Lexer::SourceIsEmpty`] error if the provided
+    /// `source` is empty.
+    ///
+    /// ---
+    ///
+    /// See the [`builder`] documentation for more information.
+    ///
+    /// [`builder`]: crate::parser::Builder
+    /// [`parser`]: crate::Parser
+    pub fn build(self) -> Result<Parser, Error<JSON>> {
+        let source = self.source;
+
+        if source.is_empty() {
+            return Err(error::Lexer::SourceIsEmpty.into());
+        }
+
+        let cache_interval = self
+            .cache_interval
+            .map(|interval| if interval == 0 { 1 } else { interval });
+
+        let range = 0..source.len();
+
+        let kind =
+            match source.as_bytes().iter().find(|c| !c.is_ascii_whitespace()) {
+                Some(b'{') => JSON::Object,
+                Some(b'[') => JSON::Array,
+                Some(b'"') => JSON::String,
+                Some(_) => JSON::Sequence,
+                None => {
+                    return Err(error::Token::ExpectedButGot {
+                        expected: [
+                            JSON::Object,
+                            JSON::Array,
+                            JSON::String,
+                            JSON::Sequence,
+                        ]
+                        .into(),
+                        got: None,
+                        location: (
+                            error::Relation::After,
+                            error::row_col_pos(source.as_bytes()),
+                        ),
+                    }
+                    .into());
+                }
+            };
+
+        let flag = a_bc::Cancel::new();
+
+        let bundle = Bundle::new(
+            Content::Slice(range.clone()),
+            kind,
+            flag.clone(),
+            source,
+            range,
+            cache_interval,
+        );
+
+        let tree = lazy_tree::Tree::new(lazy_tree::node::Builder::new(
+            bundle, Callbacks,
+        ));
+
+        Ok(Parser { tree, flag })
+    }
+}
+
+mod count {
+    use std::borrow::Cow;
+
+    use a_bc::{Error, Token, error};
+
+    use crate::{Bundle, JSON, lexer, parser::YIELD_INTERVAL};
+
+    pub async fn object(
+        parent: &mut Bundle,
+        token: Token<JSON>,
+    ) -> Result<usize, Error<JSON>> {
+        let mut lexer =
+            lexer::Builder::new(Cow::Borrowed(parent.source.as_bytes()))
+                .with_flag(parent.flag.clone())
+                .with_range(token.inner_range().unwrap())
+                .build()?;
+
+        let mut checkpoints = Vec::default();
+
+        let mut counter: usize = 0;
+
+        loop {
+            if parent
+                .cache
+                .as_ref()
+                .is_some_and(|cache| counter.is_multiple_of(cache.interval))
+            {
+                checkpoints.push(*lexer.cursor().position());
+            }
+
+            match lexer.expect(&[JSON::String]) {
+                Ok(key_token) => key_token,
+                Err(e) => {
+                    if let Error::Token(error::Token::ExpectedButGot {
+                        got,
+                        ..
+                    }) = e
+                        && got.is_none()
+                        && counter == 0
+                    {
+                        break;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            };
+
+            lexer.expect(&[JSON::Colon])?;
+
+            lexer.expect(&[
+                JSON::String,
+                JSON::Sequence,
+                JSON::Object,
+                JSON::Array,
+            ])?;
+
+            counter += 1;
+
+            if let Err(e) = lexer.expect(&[JSON::Comma]) {
+                if let Error::Token(error::Token::ExpectedButGot {
+                    got, ..
+                }) = e
+                    && got.is_none()
+                {
+                    break;
+                } else {
+                    return Err(e);
+                }
+            }
+
+            if counter.is_multiple_of(YIELD_INTERVAL) {
+                tokio::task::yield_now().await;
+            }
+        }
+
+        if let Some(cache) = &mut parent.cache {
+            cache.checkpoints = Some(checkpoints.into_boxed_slice());
+        }
+
+        Ok(counter)
+    }
+
+    pub async fn array(
+        parent: &mut Bundle,
+        token: Token<JSON>,
+    ) -> Result<usize, Error<JSON>> {
+        let mut lexer =
+            lexer::Builder::new(Cow::Borrowed(parent.source.as_bytes()))
+                .with_flag(parent.flag.clone())
+                .with_range(token.inner_range().unwrap())
+                .build()?;
+
+        let mut checkpoints = Vec::default();
+
+        let mut counter: usize = 0;
+
+        loop {
+            if parent
+                .cache
+                .as_ref()
+                .is_some_and(|cache| counter.is_multiple_of(cache.interval))
+            {
+                checkpoints.push(*lexer.cursor().position());
+            }
+
+            match lexer.not_expect(&[JSON::Comma, JSON::Colon]) {
+                Ok(token) => token,
+                Err(e) => {
+                    if let Error::Token(error::Token::NotExpectedButGot {
+                        got,
+                        ..
+                    }) = e
+                        && got.is_none()
+                        && counter == 0
+                    {
+                        break;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            };
+
+            counter += 1;
+
+            if let Err(e) = lexer.expect(&[JSON::Comma]) {
+                if let Error::Token(error::Token::ExpectedButGot {
+                    got, ..
+                }) = e
+                    && got.is_none()
+                {
+                    break;
+                } else {
+                    return Err(e);
+                }
+            }
+
+            if counter.is_multiple_of(YIELD_INTERVAL) {
+                tokio::task::yield_now().await;
+            }
+        }
+
+        if let Some(cache) = &mut parent.cache {
+            cache.checkpoints = Some(checkpoints.into_boxed_slice());
+        }
+
+        Ok(counter)
+    }
+}
+
+mod query {
+    use std::borrow::Cow;
+
+    use a_bc::{Error, Token};
+    use lazy_tree::node;
 
     use crate::{
-        a_bc::error::{self, Error, Position, Relation},
-        lazy_tree::cursor::{Direction, Target},
-        lexer::Json,
-        parser::Parser,
+        Bundle, JSON, lexer,
+        parser::{Cache, Content, YIELD_INTERVAL},
     };
 
-    #[test]
-    fn cancellation() {
-        let n = 10000;
-        let source = {
-            let mut source = String::with_capacity(2 + n * 2);
-            source.push('[');
+    pub async fn object(
+        parent: &Bundle,
+        token: Token<JSON>,
+        index: usize,
+    ) -> Result<node::Builder<Bundle, Error<JSON>>, Error<JSON>> {
+        let (position, mut counter) = match &parent.cache {
+            Some(Cache {
+                checkpoints,
+                interval,
+            }) if let Some(checkpoints) = checkpoints
+                && !checkpoints.is_empty() =>
+            {
+                let position = checkpoints.get(index / interval).unwrap();
+                let counter = (index / interval) * interval;
 
-            for i in 0..n - 1 {
-                source.push_str(format!("{}", i % 10).as_ref());
-                source.push(',');
+                (Some(*position), counter)
             }
-
-            source.push_str("0]");
-
-            source
+            _ => (None, 0),
         };
 
-        let parser = Parser::new(&source).unwrap();
+        let mut lexer =
+            lexer::Builder::new(Cow::Borrowed(parent.source.as_bytes()))
+                .with_position(position)
+                .with_flag(parent.flag.clone())
+                .with_range(token.inner_range().unwrap())
+                .build()?;
 
-        thread::scope(|s| {
-            s.spawn(|| {
-                assert!(
-                    parser
-                        .cursor()
-                        .is_err_and(|e| e == error::Lexer::Cancelled.into())
-                )
-            });
+        loop {
+            let name = lexer.expect(&[JSON::String])?;
 
-            s.spawn(|| {
-                parser.cancel();
-            });
-        });
-    }
+            lexer.expect(&[JSON::Colon])?;
 
-    #[test]
-    fn empty_source() {
-        let source = "";
-        assert!(
-            Parser::new(source)
-                .is_err_and(|e| { e == error::Lexer::SourceIsEmpty.into() })
-        );
-    }
+            let value = lexer.expect(&[
+                JSON::String,
+                JSON::Sequence,
+                JSON::Object,
+                JSON::Array,
+            ])?;
 
-    #[test]
-    fn whitespace_source() {
-        let source = " \n \t ";
-        assert!(Parser::new(source).is_err_and(|e| {
-            e == error::Token::ExpectedButGot {
-                expected: [
-                    Json::Object,
-                    Json::Array,
-                    Json::String,
-                    Json::Sequence,
-                ]
-                .into(),
-                got: None,
-                location: (Relation::After, Position::new(2, 3)),
+            if index == counter {
+                let bundle = Bundle::new(
+                    Content::Slice(name.inner_range().unwrap()),
+                    *value.kind(),
+                    parent.flag.clone(),
+                    parent.source.clone(),
+                    value.range().clone(),
+                    parent.cache.as_ref().map(|cache| cache.interval),
+                );
+
+                return Ok(node::Builder::new(bundle, super::Callbacks));
             }
-            .into()
-        }));
+
+            counter += 1;
+
+            lexer.expect(&[JSON::Comma])?;
+
+            if counter.is_multiple_of(YIELD_INTERVAL) {
+                tokio::task::yield_now().await;
+            }
+        }
     }
 
-    #[test]
-    fn empty_string() {
-        let source = " \n \t \"\" \n \t ";
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#""""#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-    }
-
-    #[test]
-    fn valid_string() {
-        let source = " \n \t \"foo\" \n \t ";
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "foo")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#""foo""#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "foo")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#""   ""#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "   ")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#"" foo bar ""#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, " foo bar ")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#""foo \" bar""#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, r#"foo \" bar"#)].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#""foo \"  \" bar""#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, r#"foo \"  \" bar"#)].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#""foo \"  \" bar""#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, r#"foo \"  \" bar"#)].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#""foo { bar""#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, r#"foo { bar"#)].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#""foo } bar""#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, r#"foo } bar"#)].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#""foo {} bar""#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, r#"foo {} bar"#)].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#""foo [ bar""#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, r#"foo [ bar"#)].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#""foo ] bar""#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, r#"foo ] bar"#)].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#""foo [] bar""#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, r#"foo [] bar"#)].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#""foo : bar""#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, r#"foo : bar"#)].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-    }
-
-    #[test]
-    fn invalid_string() {
-        let source = r#" " "#;
-        let parser = Parser::new(source).unwrap();
-        assert!(parser.cursor().is_err_and(|e| {
-            e == Error::Token(error::Token::PairNotFound {
-                opening: "\"".into(),
-                closing: "\"".into(),
-                location: (Relation::After, (1, 2).into()),
-            })
-        }));
-    }
-
-    #[test]
-    fn sequence() {
-        let source = "asdfgh";
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Sequence);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::Sequence, "asdfgh")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = "123456";
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Sequence);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::Sequence, "123456")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = "a1s2d3f4g5h6";
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Sequence);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::Sequence, "a1s2d3f4g5h6")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#"a{1s"2d[3f}4g"5h]6"#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Sequence);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::Sequence, r#"a{1s"2d[3f}4g"5h]6"#)].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-    }
-
-    #[test]
-    fn empty_object() {
-        let source = "{}";
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Object);
-        assert_eq!(cursor.value().content, source);
-        assert!(cursor.children().is_empty());
-
-        let source = " \n \t {} \n \t";
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Object);
-        assert_eq!(cursor.value().content, source);
-        assert!(cursor.children().is_empty());
-
-        let source = "{ \n \t }";
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Object);
-        assert_eq!(cursor.value().content, source);
-        assert!(cursor.children().is_empty());
-
-        let source = " \n \t { \n \t } \n \t";
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Object);
-        assert_eq!(cursor.value().content, source);
-        assert!(cursor.children().is_empty());
-    }
-
-    #[test]
-    fn valid_object() {
-        let source =
-            " \n \t { \n \t \"foo\" \n \t : \n \t \"bar\" \n \t } \n \t ";
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Object);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "foo")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#"{"foo":"bar"}"#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Object);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "foo")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#" { "foo": 42, "bar": "baz" } "#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Object);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::Sequence, "foo"), (Json::String, "bar")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#" { "foo": bar } "#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Object);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::Sequence, "foo")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#" { "foo": { not parsed yet } } "#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Object);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::Object, "foo")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#" { "foo": [ not parsed yet ] } "#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Object);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::Array, "foo")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#" { "": "" } "#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Object);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-    }
-
-    #[test]
-    fn invalid_object() {
-        let source = r#" { "foo": "bar"  "#;
-        let parser = Parser::new(source).unwrap();
-        assert!(parser.cursor().is_err_and(|e| {
-            e == Error::Token(error::Token::PairNotFound {
-                opening: "{".into(),
-                closing: "}".into(),
-                location: (Relation::After, (1, 2).into()),
-            })
-        }));
-
-        let source = r#" { "foo": "bar", } "#;
-        let parser = Parser::new(source).unwrap();
-        assert!(parser.cursor().is_err_and(|e| {
-            e == Error::Token(error::Token::ExpectedButGot {
-                expected: [Json::String].into(),
-                got: None,
-                location: (Relation::After, (1, 17).into()),
-            })
-        }));
-
-        let source = r#" { foo: "bar" } "#;
-        let parser = Parser::new(source).unwrap();
-        assert!(parser.cursor().is_err_and(|e| {
-            e == Error::Token(error::Token::ExpectedButGot {
-                expected: [Json::String].into(),
-                got: Some(Json::Sequence),
-                location: (Relation::At, (1, 4).into()),
-            })
-        }));
-
-        let source = r#" { "foo" } "#;
-        let parser = Parser::new(source).unwrap();
-        assert!(parser.cursor().is_err_and(|e| {
-            e == Error::Token(error::Token::ExpectedButGot {
-                expected: [Json::Colon].into(),
-                got: None,
-                location: (Relation::After, (1, 9).into()),
-            })
-        }));
-
-        let source = r#" { foo } "#;
-        let parser = Parser::new(source).unwrap();
-        assert!(parser.cursor().is_err_and(|e| {
-            e == Error::Token(error::Token::ExpectedButGot {
-                expected: [Json::String].into(),
-                got: Some(Json::Sequence),
-                location: (Relation::At, (1, 4).into()),
-            })
-        }));
-
-        let source = r#" { "foo" "bar" } "#;
-        let parser = Parser::new(source).unwrap();
-        assert!(parser.cursor().is_err_and(|e| {
-            e == Error::Token(error::Token::ExpectedButGot {
-                expected: [Json::Colon].into(),
-                got: Some(Json::String),
-                location: (Relation::At, (1, 10).into()),
-            })
-        }));
-    }
-
-    #[test]
-    fn empty_array() {
-        let source = "[]";
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Array);
-        assert_eq!(cursor.value().content, source);
-        assert!(cursor.children().is_empty());
-
-        let source = " \n \t [] \n \t";
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Array);
-        assert_eq!(cursor.value().content, source);
-        assert!(cursor.children().is_empty());
-
-        let source = "[ \n \t ]";
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Array);
-        assert_eq!(cursor.value().content, source);
-        assert!(cursor.children().is_empty());
-
-        let source = " \n \t [ \n \t ] \n \t ";
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Array);
-        assert_eq!(cursor.value().content, source);
-        assert!(cursor.children().is_empty());
-    }
-
-    #[test]
-    fn valid_array() {
-        let source = " \n \t [ \n \t \"foo\" \n \t , \n \t bar \n \t , \n \t [ \n \t ] \n \t , \n \t { \n \t } \n \t ]";
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Array);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip(
-                [
-                    (Json::String, "foo"),
-                    (Json::Sequence, "bar"),
-                    (Json::Array, "[...]"),
-                    (Json::Object, "{...}"),
-                ]
-                .iter(),
-            )
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#"["foo",bar,[],{}]"#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Array);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip(
-                [
-                    (Json::String, "foo"),
-                    (Json::Sequence, "bar"),
-                    (Json::Array, "[...]"),
-                    (Json::Object, "{...}"),
-                ]
-                .iter(),
-            )
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#" [ "foo", 42 ] "#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Array);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "foo"), (Json::Sequence, "42")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#" [ "foo", bar ] "#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Array);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "foo"), (Json::Sequence, "bar")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#" [ "foo", { not parsed yet } ] "#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Array);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "foo"), (Json::Object, "{...}")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#" [ "foo", [ not parsed yet ] ] "#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Array);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "foo"), (Json::Array, "[...]")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-
-        let source = r#" [ [] ] "#;
-        let parser = Parser::new(source).unwrap();
-        let cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Array);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::Array, "[...]")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-    }
-
-    #[test]
-    fn invalid_array() {
-        let source = r#" [ "foo", bar "#;
-        let parser = Parser::new(source).unwrap();
-        assert!(parser.cursor().is_err_and(|e| {
-            e == Error::Token(error::Token::PairNotFound {
-                opening: "[".into(),
-                closing: "]".into(),
-                location: (Relation::After, (1, 2).into()),
-            })
-        }));
-
-        let source = r#" [ "foo", bar, ] "#;
-        let parser = Parser::new(source).unwrap();
-        assert!(parser.cursor().is_err_and(|e| {
-            e == Error::Token(error::Token::NotExpectedButGot {
-                not_expected: [Json::Comma, Json::Colon].into(),
-                got: None,
-                location: (Relation::After, (1, 15).into()),
-            })
-        }));
-
-        let source = r#" [ "foo" bar ] "#;
-        let parser = Parser::new(source).unwrap();
-        assert!(parser.cursor().is_err_and(|e| {
-            e == Error::Token(error::Token::ExpectedButGot {
-                expected: [Json::Comma].into(),
-                got: Some(Json::Sequence),
-                location: (Relation::At, (1, 10).into()),
-            })
-        }));
-    }
-
-    #[test]
-    fn full() {
-        let source = r#"
+    pub async fn array(
+        parent: &Bundle,
+        token: Token<JSON>,
+        index: usize,
+    ) -> Result<node::Builder<Bundle, Error<JSON>>, Error<JSON>> {
+        let (position, mut counter) = match &parent.cache {
+            Some(Cache {
+                checkpoints,
+                interval,
+            }) if let Some(checkpoints) = checkpoints
+                && !checkpoints.is_empty() =>
             {
-              "first_name": "John",
-              "last_name": "Smith",
-              "is_alive": true,
-              "age": 27,
-              "address": {
-                "street_address": "21 2nd Street",
-                "city": "New York",
-                "state": "NY",
-                "postal_code": "10021-3100"
-              },
-              "phone_numbers": [
-                {
-                  "type": "home",
-                  "number": "212 555-1234"
-                },
-                {
-                  "type": "office",
-                  "number": "646 555-4567"
-                }
-              ],
-              "children": [
-                "Catherine",
-                "Thomas",
-                "Trevor"
-              ],
-              "spouse": null
+                let position = checkpoints.get(index / interval).unwrap();
+                let counter = (index / interval) * interval;
+
+                (Some(*position), counter)
             }
-        "#;
+            _ => (None, 0),
+        };
 
-        let parser = Parser::new(source).unwrap();
+        let mut lexer =
+            lexer::Builder::new(Cow::Borrowed(parent.source.as_bytes()))
+                .with_position(position)
+                .with_flag(parent.flag.clone())
+                .with_range(token.inner_range().unwrap())
+                .build()?;
 
-        let mut cursor = parser.cursor().unwrap();
-        assert_eq!(cursor.value().kind, Json::Object);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip(
-                [
-                    (Json::String, "first_name"),
-                    (Json::String, "last_name"),
-                    (Json::Sequence, "is_alive"),
-                    (Json::Sequence, "age"),
-                    (Json::Object, "address"),
-                    (Json::Array, "phone_numbers"),
-                    (Json::Array, "children"),
-                    (Json::Sequence, "spouse"),
-                ]
-                .iter(),
-            )
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0]);
+        loop {
+            let value = lexer.not_expect(&[JSON::Comma, JSON::Colon])?;
 
-        assert!(cursor.go_to(&[0, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "first_name");
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "John")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0, 0]);
+            if index == counter {
+                let (content, range) = match *value.kind() {
+                    JSON::Object => {
+                        (Content::Object, Some(value.range().clone()))
+                    }
+                    JSON::Array => {
+                        (Content::Array, Some(value.range().clone()))
+                    }
+                    JSON::String => {
+                        (Content::Slice(value.inner_range().unwrap()), None)
+                    }
+                    JSON::Sequence => {
+                        (Content::Slice(value.range().clone()), None)
+                    }
+                    _ => unreachable!(),
+                };
 
-        assert!(cursor.go_to(&[0, 0, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "John");
-        assert!(cursor.children().is_empty());
-        assert_eq!(cursor.path(), &[0, 0, 0]);
+                let bundle = Bundle::new(
+                    content,
+                    *value.kind(),
+                    parent.flag.clone(),
+                    parent.source.clone(),
+                    range,
+                    parent.cache.as_ref().map(|cache| cache.interval),
+                );
 
-        assert!(cursor.go_to(&[0, 1]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "last_name");
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "Smith")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0, 1]);
+                return Ok(node::Builder::new(bundle, super::Callbacks));
+            }
 
-        assert!(cursor.go_to(&[0, 1, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "Smith");
-        assert!(cursor.children().is_empty());
-        assert_eq!(cursor.path(), &[0, 1, 0]);
+            counter += 1;
 
-        assert!(cursor.go_to(&[0, 2]).unwrap());
-        assert_eq!(cursor.value().kind, Json::Sequence);
-        assert_eq!(cursor.value().content, "is_alive");
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::Sequence, "true")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0, 2]);
+            lexer.expect(&[JSON::Comma])?;
 
-        assert!(cursor.go_to(&[0, 2, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::Sequence);
-        assert_eq!(cursor.value().content, "true");
-        assert!(cursor.children().is_empty());
-        assert_eq!(cursor.path(), &[0, 2, 0]);
+            if counter.is_multiple_of(YIELD_INTERVAL) {
+                tokio::task::yield_now().await;
+            }
+        }
+    }
 
-        assert!(cursor.go_to(&[0, 3]).unwrap());
-        assert_eq!(cursor.value().kind, Json::Sequence);
-        assert_eq!(cursor.value().content, "age");
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::Sequence, "27")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0, 3]);
+    pub fn string(
+        parent: &Bundle,
+        token: Token<JSON>,
+    ) -> Result<node::Builder<Bundle, Error<JSON>>, Error<JSON>> {
+        let bundle = Bundle::new(
+            Content::Slice(token.inner_range().unwrap()),
+            JSON::String,
+            parent.flag.clone(),
+            parent.source.clone(),
+            None,
+            parent.cache.as_ref().map(|cache| cache.interval),
+        );
 
-        assert!(cursor.go_to(&[0, 3, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::Sequence);
-        assert_eq!(cursor.value().content, "27");
-        assert!(cursor.children().is_empty());
-        assert_eq!(cursor.path(), &[0, 3, 0]);
+        Ok(node::Builder::new(bundle, super::Callbacks))
+    }
 
-        assert!(cursor.go_to(&[0, 4]).unwrap());
-        assert_eq!(cursor.value().kind, Json::Object);
-        assert_eq!(cursor.value().content, "address");
-        cursor
-            .children()
-            .iter()
-            .zip(
-                [
-                    (Json::String, "street_address"),
-                    (Json::String, "city"),
-                    (Json::String, "state"),
-                    (Json::String, "postal_code"),
-                ]
-                .iter(),
-            )
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0, 4]);
+    pub fn sequence(
+        parent: &Bundle,
+        token: Token<JSON>,
+    ) -> Result<node::Builder<Bundle, Error<JSON>>, Error<JSON>> {
+        let bundle = Bundle::new(
+            Content::Slice(token.range().clone()),
+            JSON::Sequence,
+            parent.flag.clone(),
+            parent.source.clone(),
+            None,
+            parent.cache.as_ref().map(|cache| cache.interval),
+        );
 
-        assert!(cursor.go_to(&[0, 4, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "street_address");
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "21 2nd Street")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0, 4, 0]);
-
-        assert!(cursor.go_to(&[0, 4, 0, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "21 2nd Street");
-        assert!(cursor.children().is_empty());
-        assert_eq!(cursor.path(), &[0, 4, 0, 0]);
-
-        assert!(cursor.go_to(&[0, 4, 1]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "city");
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "New York")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0, 4, 1]);
-
-        assert!(cursor.go_to(&[0, 4, 1, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "New York");
-        assert!(cursor.children().is_empty());
-        assert_eq!(cursor.path(), &[0, 4, 1, 0]);
-
-        assert!(cursor.go_to(&[0, 4, 2]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "state");
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "NY")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0, 4, 2]);
-
-        assert!(cursor.go_to(&[0, 4, 2, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "NY");
-        assert!(cursor.children().is_empty());
-        assert_eq!(cursor.path(), &[0, 4, 2, 0]);
-
-        assert!(cursor.go_to(&[0, 4, 3]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "postal_code");
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "10021-3100")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0, 4, 3]);
-
-        assert!(cursor.go_to(&[0, 4, 3, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "10021-3100");
-        assert!(cursor.children().is_empty());
-        assert_eq!(cursor.path(), &[0, 4, 3, 0]);
-
-        assert!(cursor.go_to(&[0, 5]).unwrap());
-        assert_eq!(cursor.value().kind, Json::Array);
-        assert_eq!(cursor.value().content, "phone_numbers");
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::Object, "{...}"), (Json::Object, "{...}")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0, 5]);
-
-        assert!(cursor.go_to(&[0, 5, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::Object);
-        assert_eq!(cursor.value().content, "{...}");
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "type"), (Json::String, "number")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0, 5, 0]);
-
-        assert!(cursor.go_to(&[0, 5, 0, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "type");
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "home")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0, 5, 0, 0]);
-
-        assert!(cursor.go_to(&[0, 5, 0, 0, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "home");
-        assert!(cursor.children().is_empty());
-        assert_eq!(cursor.path(), &[0, 5, 0, 0, 0]);
-
-        assert!(cursor.go_to(&[0, 5, 0, 1]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "number");
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "212 555-1234")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0, 5, 0, 1]);
-
-        assert!(cursor.go_to(&[0, 5, 0, 1, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "212 555-1234");
-        assert!(cursor.children().is_empty());
-        assert_eq!(cursor.path(), &[0, 5, 0, 1, 0]);
-
-        assert!(cursor.go_to(&[0, 5, 1]).unwrap());
-        assert_eq!(cursor.value().kind, Json::Object);
-        assert_eq!(cursor.value().content, "{...}");
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "type"), (Json::String, "number")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0, 5, 1]);
-
-        assert!(cursor.go_to(&[0, 5, 1, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "type");
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "office")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0, 5, 1, 0]);
-
-        assert!(cursor.go_to(&[0, 5, 1, 0, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "office");
-        assert!(cursor.children().is_empty());
-        assert_eq!(cursor.path(), &[0, 5, 1, 0, 0]);
-
-        assert!(cursor.go_to(&[0, 5, 1, 1]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "number");
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::String, "646 555-4567")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0, 5, 1, 1]);
-
-        assert!(cursor.go_to(&[0, 5, 1, 1, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "646 555-4567");
-        assert!(cursor.children().is_empty());
-        assert_eq!(cursor.path(), &[0, 5, 1, 1, 0]);
-
-        assert!(cursor.go_to(&[0, 6]).unwrap());
-        assert_eq!(cursor.value().kind, Json::Array);
-        assert_eq!(cursor.value().content, "children");
-        cursor
-            .children()
-            .iter()
-            .zip(
-                [
-                    (Json::String, "Catherine"),
-                    (Json::String, "Thomas"),
-                    (Json::String, "Trevor"),
-                ]
-                .iter(),
-            )
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0, 6]);
-
-        assert!(cursor.go_to(&[0, 6, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "Catherine");
-        assert!(cursor.children().is_empty());
-        assert_eq!(cursor.path(), &[0, 6, 0]);
-
-        assert!(cursor.go_to(&[0, 6, 1]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "Thomas");
-        assert!(cursor.children().is_empty());
-        assert_eq!(cursor.path(), &[0, 6, 1]);
-
-        assert!(cursor.go_to(&[0, 6, 2]).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "Trevor");
-        assert!(cursor.children().is_empty());
-        assert_eq!(cursor.path(), &[0, 6, 2]);
-
-        assert!(cursor.go_to(&[0, 7]).unwrap());
-        assert_eq!(cursor.value().kind, Json::Sequence);
-        assert_eq!(cursor.value().content, "spouse");
-        cursor
-            .children()
-            .iter()
-            .zip([(Json::Sequence, "null")].iter())
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0, 7]);
-
-        assert!(cursor.go_to(&[0, 7, 0]).unwrap());
-        assert_eq!(cursor.value().kind, Json::Sequence);
-        assert_eq!(cursor.value().content, "null");
-        assert!(cursor.children().is_empty());
-        assert_eq!(cursor.path(), &[0, 7, 0]);
-
-        assert!(cursor.jump(Direction::Right).unwrap());
-        assert_eq!(cursor.value().kind, Json::String);
-        assert_eq!(cursor.value().content, "John");
-        assert!(cursor.children().is_empty());
-        assert_eq!(cursor.path(), &[0, 0, 0]);
-
-        assert!(cursor.jump(Direction::Down(Target::First)).unwrap());
-        assert_eq!(cursor.value().kind, Json::Object);
-        assert_eq!(cursor.value().content, source);
-        cursor
-            .children()
-            .iter()
-            .zip(
-                [
-                    (Json::String, "first_name"),
-                    (Json::String, "last_name"),
-                    (Json::Sequence, "is_alive"),
-                    (Json::Sequence, "age"),
-                    (Json::Object, "address"),
-                    (Json::Array, "phone_numbers"),
-                    (Json::Array, "children"),
-                    (Json::Sequence, "spouse"),
-                ]
-                .iter(),
-            )
-            .for_each(|(left, right)| {
-                assert_eq!(left.value().kind, right.0);
-                assert_eq!(left.value().content, right.1);
-            });
-        assert_eq!(cursor.path(), &[0]);
+        Ok(node::Builder::new(bundle, super::Callbacks))
     }
 }

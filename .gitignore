@@ -1,4 +1,5 @@
 .pre-commit-config.yaml
+.vscode
 result
 /target
 logo.kra

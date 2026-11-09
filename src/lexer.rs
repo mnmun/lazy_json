@@ -1,319 +1,29 @@
-//! # Lazy JSON lexer
+//! # [`Lexer`]
 //!
-//! ![](https://github.com/mnmun/images/blob/main/paper.png?raw=true)
+//! ![](https://github.com/mnmun/images/blob/main/box.png?raw=true)
 //!
-//! Provides a lazy JSON [`lexer`] based on the [`a_bc`] crate.
-//!
-//! The [`lexer`] operates on data represented as a collection of `u8` values.
-//! Typically, the [`source`] data is provided as an `&str` and converted to
-//! `&[u8]` using the [`.as_bytes()`] method. Although the [`lexer`] actually
-//! operates on raw bytes internally, the following documentation will use the
-//! terminology associated with string data - specifically, the term "character".
-//!
-//! The [`lexer`] [`extracts`] [`tokens`] of the following [`kinds`] from a
-//! [`source`] data:
-//!
-//! - [`Comma`] - the `,` character;
-//! - [`Colon`] - the `:` character;
-//! - [`Object`] - the `{` and `}` characters together with every character
-//!   between them;
-//! - [`Array`] - the `[` and `]` characters together with every character
-//!   between them;
-//! - [`String`] - the `"` and `"` characters together with every character
-//!   between them;
-//! - [`Sequence`] - a contiguous run of characters; [`whitespace`] as well as
-//!   the `:` and `,` characters act as separators.
-//!
-//! [`Tokens`] may be separated by any number of [`whitespace characters`].
-//!
-//! The [`lexer`] supports escaping double-quote characters `"` with a backslash
-//! character `\`. Note that a backslash can itself be escaped; in that case it
-//! no longer escapes the following quote.
-//!
-//! ## Use cases
-//!
-//! The [`lexer`] was originally designed to back the lazy JSON [`parser`], but
-//! it can equally be used on its own. It [`extracts`] only top-level
-//! [`tokens`], skipping the characters of deeper [`tokens`] that are not
-//! currently being [`extracted`]. This approach may be beneficial for large
-//! JSON data with deep nesting.
-//!
-//! ## Behavior
-//!
-//! Unlike lexers that examine the characters of the source data one by one
-//! this [`lexer`] skips a portion of the characters and leaves them unexamined.
-//! Put differently, within the given hierarchical structure of JSON, the
-//! [`lexer`] [`extracts`] only the top-level [`tokens`].
-//!
-//! Consider the following [`source`] data:
-//!
-//! ```json
-//! {
-//!     "name": "value"
-//! }
-//! ```
-//!
-//! A conventional lexer would produce a sequence similar to the following:
-//! `CurlyOpen`, `String`, `Colon`, `String` and `CurlyClose`. This [`lexer`],
-//! by contrast, returns a single [`Object`] [`token`]; while assembling it, all
-//! the characters between the opening `{` and closing `}` braces are skipped.
-//!
-//! To [`extract`] the [`tokens`] of the [`object`] body, one has to "descend
-//! one level down" in the JSON hierarchy - that is, point the [`lexer`] at the
-//! [`source`] data inside the [`object's`] braces:
-//!
-//! ```json
-//! "name": "value"
-//! ```
-//!
-//! In this case the lexer returns the token sequence [`String`], [`Colon`],
-//! [`String`].
-//!
-//! The same approach is used for [`arrays`] delimited by `[` and `]`.
-//!
-//! ## Examples
-//!
-//! ![](https://github.com/mnmun/images/blob/main/bulb.png?raw=true)
-//!
-//! The following examples demonstrate how [`tokens`] are [`extracted`] from
-//! different inputs.
-//!
-//! ### Valid [`object`]
-//!
-//! A correctly formed [`object`] can be [`extracted`] as follows:
-//!
-//! ```rust
-//! use pretty_assertions::assert_eq;
-//!
-//! use lazy_json::{
-//!     Json,
-//!     Lexer,
-//!     a_bc::{Token, lexer::Builder}
-//! };
-//!
-//! // Valid source data - an object with two fields
-//! let valid_source: &[u8] = br#"
-//! {
-//!     "first_name": "John",
-//!     "second_name": "Smith"
-//! }
-//! "#;
-//!
-//! // A lexer operating over the whole source data:
-//! // {
-//! //     "first_name": "John",
-//! //     "second_name": "Smith"
-//! // }
-//! let mut lexer = Lexer::new(Builder::new(valid_source).build().unwrap());
-//!
-//! // For the current source segment, the lexer yields a single top-level
-//! // `Json::Object` token: its fields are not lexed yet
-//! let token = lexer.next().unwrap().unwrap();
-//! assert_eq!(*token.kind(), Json::Object);
-//!
-//! // To lex the object's fields, a new lexer is created within the object
-//! // boundaries
-//! let mut lexer = Lexer::new(
-//!     // The whole source data is used for diagnostic messages
-//!     Builder::new(valid_source)
-//!         // The lexer operates only on the object's inner range
-//!         .with_range(token.inner_range().unwrap())
-//!         .build()
-//!         .unwrap()
-//! );
-//! // Now lexer is operating over the following segment of the source data:
-//! // "first_name": "John",
-//! // "second_name": "Smith"
-//!
-//! let token = lexer.next().unwrap().unwrap();
-//! assert_eq!(*token.kind(), Json::String);
-//! assert_eq!(lexer.format(&token).unwrap(), r#""first_name""#);
-//!
-//! let token = lexer.next().unwrap().unwrap();
-//! assert_eq!(*token.kind(), Json::Colon);
-//! assert_eq!(lexer.format(&token).unwrap(), ":");
-//!
-//! let token = lexer.next().unwrap().unwrap();
-//! assert_eq!(*token.kind(), Json::String);
-//! assert_eq!(lexer.format(&token).unwrap(), r#""John""#);
-//!
-//! let token = lexer.next().unwrap().unwrap();
-//! assert_eq!(*token.kind(), Json::Comma);
-//! assert_eq!(lexer.format(&token).unwrap(), ",");
-//!
-//! let token = lexer.next().unwrap().unwrap();
-//! assert_eq!(*token.kind(), Json::String);
-//! assert_eq!(lexer.format(&token).unwrap(), r#""second_name""#);
-//!
-//! let token = lexer.next().unwrap().unwrap();
-//! assert_eq!(*token.kind(), Json::Colon);
-//! assert_eq!(lexer.format(&token).unwrap(), ":");
-//!
-//! let token = lexer.next().unwrap().unwrap();
-//! assert_eq!(*token.kind(), Json::String);
-//! assert_eq!(lexer.format(&token).unwrap(), r#""Smith""#);
-//!
-//! let token = lexer.next();
-//! assert_eq!(token, None);
-//! ```
-//!
-//! ### Malformed value
-//!
-//! [`Token`] characters corresponding to deep levels in the hierarchy are
-//! skipped during [`extracting`]:
-//!
-//! ```rust
-//! use pretty_assertions::assert_eq;
-//!
-//! use lazy_json::{
-//!     Json,
-//!     Lexer,
-//!     a_bc::{
-//!         Token,
-//!         error::{self, Relation, Position},
-//!         lexer::Builder,
-//!     },
-//! };
-//!
-//! // Invalid source data - valid top-level object with invalid field
-//! let invalid_source: &[u8] = br#"
-//! {
-//!     "invalid_array": [ "missing" "brace"
-//! }
-//! "#;
-//!
-//! // A lexer operating over the whole source data:
-//! // {
-//! //     "invalid_array": [ "missing" "brace"
-//! // }
-//! let mut lexer = Lexer::new(Builder::new(invalid_source).build().unwrap());
-//!
-//! // Lexer successfully extracted the top-level `Json::Object` token despite
-//! // the malformed `Json::Array` field inside it
-//! let token = lexer.next().unwrap().unwrap();
-//! assert_eq!(*token.kind(), Json::Object);
-//!
-//! // To lex the object's fields, a new lexer is created within the object
-//! // boundaries
-//! let mut lexer = Lexer::new(
-//!     // The whole source data is used for diagnostic messages
-//!     Builder::new(invalid_source)
-//!         // The lexer operates only on the object's inner range
-//!         .with_range(token.inner_range().unwrap())
-//!         .build()
-//!         .unwrap()
-//! );
-//! // Now lexer is operating over the following segment of the source data:
-//! // "invalid_array": [ "missing" "brace"
-//!
-//! let token = lexer.next().unwrap().unwrap();
-//! assert_eq!(*token.kind(), Json::String);
-//! assert_eq!(lexer.format(&token).unwrap(), r#""invalid_array""#);
-//!
-//! let token = lexer.next().unwrap().unwrap();
-//! assert_eq!(*token.kind(), Json::Colon);
-//! assert_eq!(lexer.format(&token).unwrap(), ":");
-//!
-//! // The error is returned only when an attempt is made to parse the incorrect
-//! // token: `lexer.next()` returned `Some(Err(...))` - a token exists, but an
-//! // error occurred while extracting it
-//! assert!(lexer.next().unwrap().is_err_and(|e|
-//!     e == error::Token::PairNotFound {
-//!         opening: "[".into(),
-//!         closing: "]".into(),
-//!         // Diagnostic data: `Position::new(3, 22)` points to the openning
-//!         // brace in the source data (row 3, column 22)
-//!         location: (Relation::After, Position::new(3, 22))
-//!     }.into()
-//! ));
-//! ```
-//!
-//! ### Empty [`source`] data
-//!
-//! A [`lexer`] cannot be created over empty [`source`] data:
-//!
-//! ```rust
-//! use lazy_json::a_bc::{error, lexer::Builder};
-//!
-//! let empty_source: &[u8] = b"";
-//!
-//! assert!(Builder::new(empty_source).build().is_err_and(|e|
-//!     e == error::Lexer::SourceIsEmpty
-//! ));
-//! ```
-//!
-//! ### Escaping
-//!
-//! Double-quotes are escaped with backslashes:
-//!
-//! ```rust
-//! use pretty_assertions::assert_eq;
-//!
-//! use lazy_json::{
-//!     Json,
-//!     Lexer,
-//!     a_bc::{Token, lexer::Builder},
-//! };
-//!
-//! // Valid source data - a string with escaped double-quotes inside:
-//! let source: &[u8] = br#" " escaped \" double \" quotes \\" "#;
-//! // Note that the last double-quote                       ^
-//! // is treated as the closing quote,                      │
-//! // not as an escaped one ────────────────────────────────┘
-//!
-//! // A lexer operating over the whole source data:
-//! // " escaped \" double \" quotes \\"
-//! let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-//!
-//! let token = lexer.next().unwrap().unwrap();
-//! assert_eq!(*token.kind(), Json::String);
-//! assert_eq!(lexer.format(&token).unwrap(), r#"" escaped \" double \" quotes \\""#);
-//!
-//! let token = lexer.next();
-//! assert_eq!(token, None);
-//! ```
+//! Defines a [`lexer`] that extracts [`tokens`] tagged with the [`JSON`] kinds
+//! from the source raw bytes.
 //!
 //! ---
 //!
 //! See the [`crate`] documentation for more information.
 //!
-//! [`a_bc`]: crate::a_bc
 //! [`lexer`]: crate::Lexer
-//! [`source`]: crate::a_bc::lexer::Data::source()
-//! [`.as_bytes()`]: str::as_bytes()
-//! [`extract`]: crate::Lexer::next()
-//! [`extracts`]: crate::Lexer::next()
-//! [`extracted`]: crate::Lexer::next()
-//! [`extracting`]: crate::Lexer::next()
-//! [`Extracting`]: crate::Lexer::next()
-//! [`token`]: crate::a_bc::Token
-//! [`Token`]: crate::a_bc::Token
 //! [`tokens`]: crate::a_bc::Token
-//! [`Tokens`]: crate::a_bc::Token
-//! [`kinds`]: crate::Json
-//! [`Comma`]: crate::Json::Comma
-//! [`Colon`]: crate::Json::Colon
-//! [`object`]: crate::Json::Object
-//! [`object's`]: crate::Json::Object
-//! [`Object`]: crate::Json::Object
-//! [`arrays`]: crate::Json::Array
-//! [`Array`]: crate::Json::Array
-//! [`String`]: crate::Json::String
-//! [`Sequence`]: crate::Json::Sequence
-//! [`whitespace`]: u8::is_ascii_whitespace()
-//! [`whitespace characters`]: u8::is_ascii_whitespace()
-//! [`builder`]: crate::a_bc::lexer::Builder
-//! [`parser`]: crate::parser
-//! [`error`]: crate::a_bc::error
+//! [`JSON`]: crate::JSON
 
-use std::{fmt, ops::Range, str::from_utf8};
+use std::{
+    borrow::Cow,
+    fmt,
+    ops::{Deref, Range},
+    str::from_utf8,
+};
 
-use crate::a_bc::{
-    Cancel,
+use a_bc::{
+    Cancel, Token,
     error::{self, Relation, row_col_pos},
-    lexer::{Cursor, Data},
     memchr::memchr,
-    token::Token,
     traits::InnerRange,
     utils::{Needle, count_needles_considering_escaped_delimiters},
 };
@@ -328,7 +38,7 @@ use crate::a_bc::{
 /// [`lexer`]: crate::Lexer
 /// [`module`]: crate::lexer
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
-pub enum Json {
+pub enum JSON {
     /// The comma separator `,`
     Comma,
 
@@ -348,157 +58,257 @@ pub enum Json {
     Sequence,
 }
 
-impl fmt::Display for Json {
+impl fmt::Display for JSON {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Json::Comma => write!(f, "Comma"),
-            Json::Colon => write!(f, "Colon"),
-            Json::Object => write!(f, "Object"),
-            Json::Array => write!(f, "Array"),
-            Json::String => write!(f, "String"),
-            Json::Sequence => write!(f, "Sequence"),
+            JSON::Comma => write!(f, "Comma"),
+            JSON::Colon => write!(f, "Colon"),
+            JSON::Object => write!(f, "Object"),
+            JSON::Array => write!(f, "Array"),
+            JSON::String => write!(f, "String"),
+            JSON::Sequence => write!(f, "Sequence"),
         }
     }
 }
 
-impl InnerRange for Json {
+impl InnerRange for JSON {
     /// # Returns the range inside the delimiters for the [`object`], [`array`], and [`string`] [`kinds`]
     ///
     /// For all other [`kinds`], `None` is returned.
     ///
     /// ---
     ///
-    /// See the [`module`] documentation for more information.
+    /// See the [`JSON`] documentation for more information.
     ///
-    /// [`object`]: crate::Json::Object
-    /// [`array`]: crate::Json::Array
-    /// [`string`]: crate::Json::String
-    /// [`kinds`]: crate::Json
-    /// [`module`]: crate::lexer
+    /// [`object`]: crate::JSON::Object
+    /// [`array`]: crate::JSON::Array
+    /// [`string`]: crate::JSON::String
+    /// [`kinds`]: crate::JSON
+    /// [`JSON`]: crate::JSON
     fn inner_range(&self, range: &Range<usize>) -> Option<Range<usize>> {
         match self {
-            Json::Comma | Json::Colon | Json::Sequence => None,
-            Json::Object | Json::Array | Json::String => {
+            JSON::Comma | JSON::Colon | JSON::Sequence => None,
+            JSON::Object | JSON::Array | JSON::String => {
                 Some(range.start + 1..range.end - 1)
             }
         }
     }
 }
 
-/// # Lazy JSON `lexer`
+/// # `Lexer`
 ///
-/// ![](https://github.com/mnmun/images/blob/main/paper.png?raw=true)
+/// ![](https://github.com/mnmun/images/blob/main/box.png?raw=true)
 ///
-/// A newtype wrapper around an [`a_bc::Lexer`] that produces [`tokens`] tagged
-/// with [`kinds`].
+/// Newtype wrapper around the [`a_bc::Lexer`] type that extracts [`tokens`]
+/// of the following [`kinds`] from the source raw bytes:
 ///
-/// ## Methods
+/// - [`Comma`] - comma `,` character;
+/// - [`Colon`] - colon `:` character;
+/// - [`Object`] - curly braces `{` `}` and all characters between them;
+/// - [`Array`] - square brackets `[` `]` and all characters between them;
+/// - [`String`] - double quotes `"` `"` and all characters between them;
+/// - [`Sequence`] - a contiguous run of characters: numbers, `true`, `false`,
+///   `null`, etc.; [whitespace characters] as well as the `:` and `,`
+///   characters act as separators.
 ///
-/// Use the following methods to inspect the [`inner lexer`](crate::a_bc::Lexer)
-/// state:
+/// It is important to note the [`sequence`] [`kind`]: the `lexer` does not
+/// distinguish between numbers, `null` and the boolean values `true` and
+/// `false`. Instead, it groups them all under the [`sequence`] category,
+/// leaving it up to the developer to determine whether a [`token's`] value is
+/// valid.
 ///
-/// - [`data()`] - the [`source bytes`] and the [`active scan range`];
-/// - [`cursor()`] - the [`currently observed byte`] and its [`position`] within
-///   the [`source`];
-/// - [`flag()`] - a cloneable thread-safe [`cancellation flag`].
+/// [`Tokens`] may be separated by any number of [whitespace characters].
 ///
-/// The `lexer` implements the [`Iterator`] trait - use the [`next()`] method to
-/// extract the next [`token`] from the [`source`] data.
-///
-/// In addition, the `lexer` has the following useful methods:
-///
-/// - [`expect()`] - attempts to [`extract`] the next [`token`] given a list of
-///   expected [`kinds`];
-/// - [`not_expect()`] - attempts to [`extract`] the next [`token`] given a list
-///   of disallowed [`kinds`].
+/// The `lexer` supports escaping double-quote characters `"` with a backslash
+/// character `\`. Note that a backslash can itself be escaped; in that case it
+/// no longer escapes the following quote.
 ///
 /// ## Creation
 ///
-/// Use the [`Lexer::new()`] method to create a `lexer`.
+/// Can be created using the [`builder`]:
+///
+/// ```rust
+/// use lazy_json::{Lexer, lexer::Builder};
+///
+/// let source: &'static [u8] = br#" { "name": "value" } "#;
+///
+/// let lexer: Lexer = Builder::new(source).build().unwrap();
+/// ```
+///
+/// ## Behavior
+///
+/// Unlike `lexers` that examine all characters of the source data one by one
+/// this `lexer` skips a portion of the characters and leaves them unexamined
+/// if they do not belong to the [`token`] being extracted.
+///
+/// Consider the following source data:
+///
+/// ```rust
+/// # use pretty_assertions::assert_eq;
+/// #
+/// use lazy_json::{JSON, Lexer, lexer::Builder, a_bc::Token};
+///
+/// let source: &'static [u8] = br#"
+/// {
+///     "name": "value"
+/// }
+/// "#;
+///
+/// let mut lexer: Lexer = Builder::new(source).build().unwrap();
+///
+/// let token: Token<JSON> = lexer.next().unwrap().unwrap();
+/// assert_eq!(token.kind(), &JSON::Object)
+/// ```
+///
+/// Conventional `lexer` would produce a sequence similar to the following:
+/// `CurlyOpen`, `String`, `Colon`, `String` and `CurlyClose`. This `lexer`, by
+/// contrast, returns a single [`object`] [`token`]; while extracting it, all
+/// the characters between the opening `{` and closing `}` curly braces are
+/// skipped. Simply put, the `lexer` indicates that the source data contains
+/// an object, while its content remain unchecked and unknown.
+///
+/// To extract [`tokens`] from the [`object's`] content, you must descend to
+/// the content level - that is, specify a range of source data for the
+/// `lexer` that lies between the opening `{` and closing `}` curly braces
+/// using the [`inner_range()`] method:
+///
+/// ```rust
+/// # use pretty_assertions::assert_eq;
+/// #
+/// use lazy_json::{JSON, Lexer, lexer::Builder, a_bc::Token};
+///
+/// let source: &'static [u8] = br#"
+/// {
+///     "name": "value"
+/// }
+/// "#;
+///
+/// let mut lexer: Lexer = Builder::new(source).build().unwrap();
+///
+/// let token: Token<JSON> = lexer.next().unwrap().unwrap();
+/// assert_eq!(token.kind(), &JSON::Object);
+///
+/// let mut lexer: Lexer =
+///     Builder::new(source)
+///         .with_range(token.inner_range().unwrap())
+///         .build()
+///         .unwrap();
+///
+/// let token: Token<JSON> = lexer.next().unwrap().unwrap();
+/// assert_eq!(token.kind(), &JSON::String);
+///
+/// let token: Token<JSON> = lexer.next().unwrap().unwrap();
+/// assert_eq!(token.kind(), &JSON::Colon);
+///
+/// let token: Token<JSON> = lexer.next().unwrap().unwrap();
+/// assert_eq!(token.kind(), &JSON::String);
+/// ```
+///
+/// The same approach is used for [`arrays`] delimited by `[` and `]`.
+///
+/// ## Examples
+///
+/// ![](https://github.com/mnmun/images/blob/main/bulb.png?raw=true)
+///
+/// `Lexer` implements the [`Iterator`] trait - use the [`next()`] method to
+/// extract the next [`token`] from the source data:
+///
+/// ```rust
+/// # use pretty_assertions::assert_eq;
+/// #
+/// use lazy_json::{JSON, Lexer, lexer::Builder};
+///
+/// let source: &'static [u8] = br#" "foo" "bar" "#;
+///
+/// let mut lexer: Lexer = Builder::new(source).build().unwrap();
+///
+/// let token = lexer.next().unwrap().unwrap();
+/// assert_eq!(token.kind(), &JSON::String);
+/// assert_eq!(lexer.format(&token).unwrap(), r#""foo""#);
+///
+/// let token = lexer.next().unwrap().unwrap();
+/// assert_eq!(token.kind(), &JSON::String);
+/// assert_eq!(lexer.format(&token).unwrap(), r#""bar""#);
+/// ```
+///
+/// `Lexer` implements the [`Deref`] trait, which makes the methods of the
+/// inner type accessible:
+///
+/// ```rust
+/// # use pretty_assertions::assert_eq;
+/// #
+/// use lazy_json::{JSON, Lexer, lexer::Builder};
+///
+/// let source: &'static [u8] = br#" "foo" "bar" "#;
+///
+/// let lexer: Lexer = Builder::new(source).build().unwrap();
+/// assert_eq!(*lexer.data().source(), source);
+/// assert_eq!(*lexer.data().range(), 0..source.len());
+/// ```
+///
+/// `Lexer` provides convenient [`expect()`] and [`not_expect()`] methods for
+/// cases where a specific [`token`] [`kind`] is required:
+///
+/// ```rust
+/// # use pretty_assertions::assert_eq;
+/// #
+/// use lazy_json::{JSON, Lexer, lexer::Builder};
+///
+/// let source: &'static [u8] = br#" "foo" "bar" "#;
+///
+/// let mut lexer: Lexer = Builder::new(source).build().unwrap();
+///
+/// let token = lexer.expect(&[JSON::String]).unwrap();
+/// assert_eq!(token.kind(), &JSON::String);
+/// assert_eq!(lexer.format(&token).unwrap(), r#""foo""#);
+///
+/// let token = lexer.not_expect(&[JSON::Colon]).unwrap();
+/// assert_eq!(token.kind(), &JSON::String);
+/// assert_eq!(lexer.format(&token).unwrap(), r#""bar""#);
+/// ```
 ///
 /// ---
 ///
 /// See the [`module`] documentation for more information.
 ///
-/// [`a_bc::Lexer`]: crate::a_bc::Lexer
-/// [`tokens`]: crate::a_bc::Token
-/// [`kinds`]: crate::Json
-/// [`data()`]: crate::Lexer::data()
-/// [`source`]: crate::a_bc::lexer::Data::source()
-/// [`source bytes`]: crate::a_bc::lexer::Data::source()
-/// [`active scan range`]: crate::a_bc::lexer::Data::range()
-/// [`cursor()`]: crate::Lexer::cursor()
-/// [`currently observed byte`]: crate::a_bc::lexer::Cursor::byte()
-/// [`position`]: crate::a_bc::lexer::Cursor::position()
-/// [`flag()`]: crate::Lexer::flag()
-/// [`cancellation flag`]: crate::a_bc::Cancel
-/// [`next()`]: crate::Lexer::next()
+/// [`module`]: crate::Lexer
+/// [`Comma`]: crate::JSON::Comma
+/// [`Colon`]: crate::JSON::Colon
+/// [`Object`]: crate::JSON::Object
+/// [`object`]: crate::JSON::Object
+/// [`object's`]: crate::JSON::Object
+/// [`Array`]: crate::JSON::Array
+/// [`array`]: crate::JSON::Array
+/// [`arrays`]: crate::JSON::Array
+/// [`String`]: crate::JSON::String
+/// [`Sequence`]: crate::JSON::Sequence
+/// [`sequence`]: crate::JSON::Sequence
+/// [whitespace characters]: u8::is_ascii_whitespace()
+/// [`kind`]: crate::JSON
+/// [`kinds`]: crate::JSON
 /// [`token`]: crate::a_bc::Token
+/// [`tokens`]: crate::a_bc::Token
+/// [`token's`]: crate::a_bc::Token
+/// [`builder`]: crate::lexer::Builder
+/// [`next()`]: crate::Lexer::next()
 /// [`expect()`]: crate::Lexer::expect()
-/// [`extract`]: crate::Lexer::next()
 /// [`not_expect()`]: crate::Lexer::not_expect()
-/// [`module`]: crate::lexer
-pub struct Lexer<'a>(a_bc::Lexer<'a>);
+/// [`inner_range()`]: crate::a_bc::traits::InnerRange
+pub struct Lexer<'source>(a_bc::Lexer<'source>);
 
-impl<'a> From<a_bc::Lexer<'a>> for Lexer<'a> {
-    /// # Converts an [`a_bc::Lexer`] into a [`Lexer`]
-    fn from(value: a_bc::Lexer<'a>) -> Self {
-        Lexer(value)
+impl<'source> Deref for Lexer<'source> {
+    type Target = a_bc::Lexer<'source>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
-impl<'a> Lexer<'a> {
-    /// # Creates a new [`lexer`] from an [`a_bc::Lexer`]
-    ///
-    /// See the [`lexer`] documentation for more information.
-    ///
-    /// [`lexer`]: crate::Lexer
-    /// [`a_bc::Lexer`]: crate::a_bc::Lexer
-    pub fn new(lexer: a_bc::Lexer<'a>) -> Self {
-        Self(lexer)
-    }
-}
-
-impl Lexer<'_> {
-    /// # Returns a reference to the [`data`] of the [`inner lexer`]
-    ///
-    /// See the [`lexer`] documentation for more information.
-    ///
-    /// [`data`]: crate::a_bc::Lexer::data()
-    /// [`inner lexer`]: crate::a_bc::Lexer
-    /// [`lexer`]: crate::Lexer
-    pub fn data(&self) -> &Data<'_> {
-        self.0.data()
-    }
-
-    /// # Returns a reference to the [`cursor`] of the [`inner lexer`]
-    ///
-    /// See the [`lexer`] documentation for more information.
-    ///
-    /// [`cursor`]: crate::a_bc::Lexer::cursor()
-    /// [`inner lexer`]: crate::a_bc::Lexer
-    /// [`lexer`]: crate::Lexer
-    pub fn cursor(&self) -> &Cursor {
-        self.0.cursor()
-    }
-
-    /// # Returns a reference to the [`flag`] of the [`inner lexer`]
-    ///
-    /// See the [`lexer`] documentation for more information.
-    ///
-    /// [`flag`]: crate::a_bc::Lexer::flag()
-    /// [`inner lexer`]: crate::a_bc::Lexer
-    /// [`lexer`]: crate::Lexer
-    pub fn flag(&self) -> &Cancel {
-        self.0.flag()
-    }
-}
-
-impl<'a> Lexer<'a> {
+impl<'source> Lexer<'source> {
     /// # Formats a [`token`] as `&str`
     ///
     /// Extracts the slice of the [`source`] occupied by the [`token`] and
-    /// converts it into `&str`.
+    /// converts it into string slice `&str`.
     ///
     /// Returns `None` if the [`token`] [`range`] extends beyond the [`source`].
     ///
@@ -509,15 +319,15 @@ impl<'a> Lexer<'a> {
     /// ## Example
     ///
     /// ```rust
-    /// use pretty_assertions::assert_eq;
+    /// # use pretty_assertions::assert_eq;
+    /// #
+    /// use lazy_json::{JSON, Lexer, lexer::Builder, a_bc::Token};
     ///
-    /// use lazy_json::{Lexer, a_bc::lexer::Builder};
+    /// let source: &'static [u8] = br#""hello""#;
     ///
-    /// let source = br#""hello""#;
+    /// let mut lexer: Lexer = Builder::new(source).build().unwrap();
     ///
-    /// let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-    /// let token = lexer.next().unwrap().unwrap();
-    ///
+    /// let token: Token<JSON> = lexer.next().unwrap().unwrap();
     /// assert_eq!(lexer.format(&token), Some(r#""hello""#));
     /// ```
     ///
@@ -529,7 +339,10 @@ impl<'a> Lexer<'a> {
     /// [`source`]: crate::a_bc::lexer::Data::source()
     /// [`range`]: crate::a_bc::Token::range()
     /// [`lexer`]: crate::Lexer
-    pub fn format<'b>(&'a self, token: &'b Token<Json>) -> Option<&'a str> {
+    pub fn format<'b>(
+        &'source self,
+        token: &'b Token<JSON>,
+    ) -> Option<&'source str> {
         self.data()
             .source()
             .as_ref()
@@ -551,20 +364,22 @@ impl<'a> Lexer<'a> {
     ///
     /// ## Errors
     ///
-    /// Returns [`PairNotFound`] if the `closing` delimiter character is never
-    /// found, or [`Cancelled`] if [`cancellation`] is requested mid-scan.
+    /// - [`a_bc::error::Token::PairNotFound`] - the `closing` delimiter
+    ///   character is never found;
+    /// - [`a_bc::error::Lexer::Cancelled`] - [`cancellation`] is requested
+    ///   mid-scan.
     ///
     /// ## Example
     ///
     /// ```ignore
-    /// use pretty_assertions::assert_eq;
+    /// # use pretty_assertions::assert_eq;
+    /// #
+    /// use lazy_json::{Lexer, lexer::Builder};
     ///
-    /// use lazy_json::{Lexer, a_bc::lexer::Builder};
+    /// let source: &'static [u8] = br#"{ " } { " }"#;
+    /// //                   Chars idx: 01234567890
     ///
-    /// let source = br#"{ " } { " }"#;
-    /// // Chars idx:    01234567890
-    ///
-    /// let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
+    /// let mut lexer: Lexer = Builder::new(source).build().unwrap();
     ///
     /// assert_eq!(lexer.find_block(b'{', b'}').unwrap(), 0..11);
     /// ```
@@ -573,16 +388,14 @@ impl<'a> Lexer<'a> {
     ///
     /// See the [`module`] documentation for more information.
     ///
-    /// [`cursor`]: crate::Lexer::cursor()
-    /// [`PairNotFound`]: crate::a_bc::error::Token::PairNotFound
-    /// [`Cancelled`]: crate::a_bc::error::Lexer::Cancelled
+    /// [`cursor`]: crate::a_bc::Lexer::cursor()
     /// [`cancellation`]: crate::a_bc::Cancel
     /// [`module`]: crate::lexer
-    fn find_block(
+    pub(crate) fn find_block(
         &mut self,
         opening: u8,
         closing: u8,
-    ) -> Result<Range<usize>, error::Error<Json>> {
+    ) -> Result<Range<usize>, error::Error<JSON>> {
         let initial_position = *self.cursor().position();
 
         let mut quote_counter = 0;
@@ -670,20 +483,22 @@ impl<'a> Lexer<'a> {
     ///
     /// ## Errors
     ///
-    /// Returns [`PairNotFound`] if the closing quote character is never found,
-    /// or [`Cancelled`] if [`cancellation`] is requested mid-scan.
+    /// - [`a_bc::error::Token::PairNotFound`] - the `closing` delimiter
+    ///   character is never found;
+    /// - [`a_bc::error::Lexer::Cancelled`] - [`cancellation`] is requested
+    ///   mid-scan.
     ///
     /// ## Example
     ///
     /// ```ignore
-    /// use pretty_assertions::assert_eq;
+    /// # use pretty_assertions::assert_eq;
+    /// #
+    /// use lazy_json::{Lexer, lexer::Builder};
     ///
-    /// use lazy_json::{Lexer, a_bc::lexer::Builder};
+    /// let source: &'static [u8] = br#""John""#;
+    /// //                   Chars idx: 012345
     ///
-    /// let source = br#""John""#;
-    /// // Chars idx:    012345
-    ///
-    /// let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
+    /// let mut lexer: Lexer = Builder::new(source).build().unwrap();
     ///
     /// assert_eq!(lexer.find_string().unwrap(), 0..6);
     /// ```
@@ -692,12 +507,12 @@ impl<'a> Lexer<'a> {
     ///
     /// See the [`module`] documentation for more information.
     ///
-    /// [`cursor`]: crate::Lexer::cursor()
-    /// [`PairNotFound`]: crate::a_bc::error::Token::PairNotFound
-    /// [`Cancelled`]: crate::a_bc::error::Lexer::Cancelled
+    /// [`cursor`]: crate::a_bc::Lexer::cursor()
     /// [`cancellation`]: crate::a_bc::Cancel
     /// [`module`]: crate::lexer
-    fn find_string(&mut self) -> Result<Range<usize>, error::Error<Json>> {
+    pub(crate) fn find_string(
+        &mut self,
+    ) -> Result<Range<usize>, error::Error<JSON>> {
         let initial_position = *self.cursor().position();
 
         let mut search_start = initial_position + 1;
@@ -769,19 +584,20 @@ impl<'a> Lexer<'a> {
     ///
     /// ## Errors
     ///
-    /// Returns [`Cancelled`] if [`cancellation`] is requested mid-scan.
+    /// Returns [`a_bc::error::Lexer::Cancelled`] if [`cancellation`] is
+    /// requested mid-scan.
     ///
     /// ## Example
     ///
     /// ```ignore
-    /// use pretty_assertions::assert_eq;
+    /// # use pretty_assertions::assert_eq;
+    /// #
+    /// use lazy_json::{Lexer, lexer::Builder};
     ///
-    /// use lazy_json::{Lexer, a_bc::lexer::Builder};
+    /// let source: &'static [u8] = b"somesequence";
+    /// //                 Chars idx: 012345678901
     ///
-    /// let source = b"somesequence";
-    /// // Chars idx:  012345678901
-    ///
-    /// let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
+    /// let mut lexer: Lexer = Builder::new(source).build().unwrap();
     ///
     /// assert_eq!(lexer.find_sequence().unwrap(), 0..12);
     /// ```
@@ -790,11 +606,12 @@ impl<'a> Lexer<'a> {
     ///
     /// See the [`module`] documentation for more information.
     ///
-    /// [`cursor`]: crate::Lexer::cursor()
-    /// [`Cancelled`]: crate::a_bc::error::Lexer::Cancelled
+    /// [`cursor`]: crate::a_bc::Lexer::cursor()
     /// [`cancellation`]: crate::a_bc::Cancel
     /// [`module`]: crate::lexer
-    fn find_sequence(&mut self) -> Result<Range<usize>, error::Error<Json>> {
+    pub(crate) fn find_sequence(
+        &mut self,
+    ) -> Result<Range<usize>, error::Error<JSON>> {
         let start = *self.cursor().position();
 
         loop {
@@ -819,87 +636,77 @@ impl<'a> Lexer<'a> {
     }
 }
 
-impl<'a> Lexer<'a> {
+impl<'source> Lexer<'source> {
     /// # Expecting the next [`token`] to be one of the given [`kinds`]
     ///
     /// Accepts a slice of expected [`token`] [`kinds`] and if the next
     /// [`token`] does not exist or its [`kind`] is not in the provided slice,
-    /// the function returns an [`ExpectedButGot`] error. Otherwise the
-    /// [`extracted`] [`token`] is returned unchanged.
+    /// the function returns an [`a_bc::error::Token::ExpectedButGot`] error.
+    /// Otherwise the extracted [`token`] is returned unchanged.
     ///
     /// ## Examples
     ///
     /// The expected [`token`] occurs:
     ///
     /// ```rust
-    /// use pretty_assertions::assert_eq;
+    /// # use pretty_assertions::assert_eq;
+    /// #
+    /// use lazy_json::{JSON, Lexer, lexer::Builder, a_bc::Token};
     ///
-    /// use lazy_json::{
-    ///     Json,
-    ///     Lexer,
-    ///     a_bc::{Token, lexer::Builder},
-    /// };
+    /// let source: &'static [u8] = br#" " string " "#;
     ///
-    /// let source: &[u8] = br#" " string " "#;
+    /// let mut lexer: Lexer = Builder::new(source).build().unwrap();
     ///
-    /// let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-    ///
-    /// let token = lexer.expect(&[Json::String, Json::Sequence]).unwrap();
-    /// assert_eq!(*token.kind(), Json::String);
+    /// let token: Token<JSON> = lexer
+    ///     .expect(&[JSON::String, JSON::Sequence])
+    ///     .unwrap();
+    /// assert_eq!(token.kind(), &JSON::String);
     /// assert_eq!(lexer.format(&token).unwrap(), r#"" string ""#);
     /// ```
     ///
     /// A [`token`] outside the expected [`kinds`] occurs:
     ///
     /// ```rust
-    /// use pretty_assertions::assert_eq;
-    ///
+    /// # use pretty_assertions::assert_eq;
+    /// #
     /// use lazy_json::{
-    ///     Json,
-    ///     Lexer,
-    ///     a_bc::{
-    ///         Token,
-    ///         error::{self, Relation, Position},
-    ///         lexer::Builder,
-    ///     },
+    ///     JSON, Lexer,
+    ///     lexer::Builder,
+    ///     a_bc::error::{Token, Relation, Position},
     /// };
     ///
-    /// let source: &[u8] = br#" { object } "#;
+    /// let source: &'static [u8] = br#" { object } "#;
     ///
-    /// let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
+    /// let mut lexer: Lexer = Builder::new(source).build().unwrap();
     ///
-    /// assert!(lexer.expect(&[Json::String, Json::Sequence]).is_err_and(|e|
-    ///     e == error::Token::ExpectedButGot {
-    ///         expected: [Json::String, Json::Sequence].into(),
-    ///         got: Some(Json::Object),
+    /// assert!(lexer.expect(&[JSON::String, JSON::Sequence]).is_err_and(|e|
+    ///     e == Token::ExpectedButGot {
+    ///         expected: [JSON::String, JSON::Sequence].into(),
+    ///         got: Some(JSON::Object),
     ///         location: (Relation::At, Position::new(1, 2)),
     ///     }.into()
     /// ));
     /// ```
     ///
-    /// The [`input`] is exhausted (there are no more [`tokens`]):
+    /// The source is exhausted (there are no more [`tokens`]):
     ///
     /// ```rust
-    /// use pretty_assertions::assert_eq;
-    ///
+    /// # use pretty_assertions::assert_eq;
+    /// #
     /// use lazy_json::{
-    ///     Json,
-    ///     Lexer,
-    ///     a_bc::{
-    ///         Token,
-    ///         error::{self, Relation, Position},
-    ///         lexer::Builder,
-    ///     },
+    ///     JSON, Lexer,
+    ///     lexer::Builder,
+    ///     a_bc::error::{Token, Relation, Position},
     /// };
     ///
     /// // Source containing only three whitespace characters:
-    /// let source: &[u8] = br#"   "#;
+    /// let source: &'static [u8] = br#"   "#;
     ///
-    /// let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
+    /// let mut lexer: Lexer = Builder::new(source).build().unwrap();
     ///
-    /// assert!(lexer.expect(&[Json::String, Json::Sequence]).is_err_and(|e|
-    ///     e == error::Token::ExpectedButGot {
-    ///         expected: [Json::String, Json::Sequence].into(),
+    /// assert!(lexer.expect(&[JSON::String, JSON::Sequence]).is_err_and(|e|
+    ///     e == Token::ExpectedButGot {
+    ///         expected: [JSON::String, JSON::Sequence].into(),
     ///         got: None,
     ///         location: (Relation::After, Position::new(1, 3)),
     ///     }.into()
@@ -912,18 +719,15 @@ impl<'a> Lexer<'a> {
     ///
     /// [`token`]: crate::a_bc::Token
     /// [`tokens`]: crate::a_bc::Token
-    /// [`kinds`]: crate::Json
-    /// [`kind`]: crate::Json
-    /// [`ExpectedButGot`]: crate::a_bc::error::Token::ExpectedButGot
-    /// [`extracted`]: crate::Lexer::next()
-    /// [`input`]: crate::a_bc::lexer::Data::source()
+    /// [`kinds`]: crate::JSON
+    /// [`kind`]: crate::JSON
     /// [`lexer`]: crate::Lexer
     pub fn expect(
         &mut self,
-        kinds: &[Json],
-    ) -> Result<Token<Json>, error::Error<Json>> {
+        kinds: &[JSON],
+    ) -> Result<Token<JSON>, error::Error<JSON>> {
         self.next()
-            .ok_or(
+            .ok_or_else(|| {
                 error::Token::ExpectedButGot {
                     expected: kinds.to_vec().into_boxed_slice(),
                     got: None,
@@ -935,8 +739,8 @@ impl<'a> Lexer<'a> {
                         ),
                     ),
                 }
-                .into(),
-            )
+                .into()
+            })
             .and_then(|result| {
                 result.and_then(|token| {
                     if !kinds.contains(token.kind()) {
@@ -963,82 +767,72 @@ impl<'a> Lexer<'a> {
     ///
     /// Accepts a slice of not expected [`token`] [`kinds`] and if the next
     /// [`token`] does not exist or its [`kind`] is in the provided slice, the
-    /// function returns an [`NotExpectedButGot`] error. Otherwise the
-    /// [`extracted`] [`token`] is returned unchanged.
+    /// function returns an [`a_bc::error::Token::NotExpectedButGot`] error.
+    /// Otherwise the extracted [`token`] is returned unchanged.
     ///
     /// ## Examples
     ///
     /// The [`token`] does not match the disallowed [`kinds`]:
     ///
     /// ```rust
-    /// use pretty_assertions::assert_eq;
+    /// # use pretty_assertions::assert_eq;
+    /// #
+    /// use lazy_json::{JSON, Lexer, lexer::Builder, a_bc::Token};
     ///
-    /// use lazy_json::{
-    ///     Json,
-    ///     Lexer,
-    ///     a_bc::{Token, lexer::Builder},
-    /// };
+    /// let source: &'static [u8] = br#" " string " "#;
     ///
-    /// let source: &[u8] = br#" " string " "#;
+    /// let mut lexer: Lexer = Builder::new(source).build().unwrap();
     ///
-    /// let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-    ///
-    /// let token = lexer.not_expect(&[Json::Object, Json::Sequence]).unwrap();
-    /// assert_eq!(*token.kind(), Json::String);
+    /// let token: Token<JSON> = lexer
+    ///     .not_expect(&[JSON::Object, JSON::Sequence])
+    ///     .unwrap();
+    /// assert_eq!(token.kind(), &JSON::String);
     /// assert_eq!(lexer.format(&token).unwrap(), r#"" string ""#);
     /// ```
     ///
     /// A disallowed [`token`] occurs:
     ///
     /// ```rust
-    /// use pretty_assertions::assert_eq;
-    ///
+    /// # use pretty_assertions::assert_eq;
+    /// #
     /// use lazy_json::{
-    ///     Json,
-    ///     Lexer,
-    ///     a_bc::{
-    ///         Token,
-    ///         error::{self, Relation, Position},
-    ///         lexer::Builder,
-    ///     },
+    ///     JSON, Lexer,
+    ///     lexer::Builder,
+    ///     a_bc::error::{Token, Relation, Position},
     /// };
     ///
-    /// let source: &[u8] = br#" { object } "#;
+    /// let source: &'static [u8] = br#" { object } "#;
     ///
-    /// let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
+    /// let mut lexer: Lexer = Builder::new(source).build().unwrap();
     ///
-    /// assert!(lexer.not_expect(&[Json::Object, Json::Sequence]).is_err_and(|e|
-    ///     e == error::Token::NotExpectedButGot {
-    ///         not_expected: [Json::Object, Json::Sequence].into(),
-    ///         got: Some(Json::Object),
+    /// assert!(lexer.not_expect(&[JSON::Object, JSON::Sequence]).is_err_and(|e|
+    ///     e == Token::NotExpectedButGot {
+    ///         not_expected: [JSON::Object, JSON::Sequence].into(),
+    ///         got: Some(JSON::Object),
     ///         location: (Relation::At, Position::new(1, 2)),
     ///     }.into()
     /// ));
     /// ```
     ///
-    /// The [`input`] is exhausted (there are no more [`tokens`]):
+    /// The source is exhausted (there are no more [`tokens`]):
     ///
     /// ```rust
-    /// use pretty_assertions::assert_eq;
-    ///
+    /// # use pretty_assertions::assert_eq;
+    /// #
     /// use lazy_json::{
-    ///     Json,
-    ///     Lexer,
-    ///     a_bc::{
-    ///         Token,
-    ///         error::{self, Relation, Position},
-    ///         lexer::Builder,
-    ///     },
+    ///     JSON, Lexer,
+    ///     lexer::Builder,
+    ///     a_bc::error::{Token, Relation, Position},
     /// };
     ///
     /// // Source containing only three whitespace characters:
-    /// let source: &[u8] = br#"   "#;
+    /// let source: &'static [u8] = br#"   "#;
     ///
-    /// let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
+    /// let mut lexer: Lexer = Builder::new(source).build().unwrap();
     ///
-    /// assert!(lexer.not_expect(&[Json::Object, Json::Sequence]).is_err_and(|e|
-    ///     e == error::Token::NotExpectedButGot {
-    ///         not_expected: [Json::Object, Json::Sequence].into(),
+    /// assert!(lexer.not_expect(&[JSON::Object, JSON::Sequence]).is_err_and(|e|
+    ///     e == Token::NotExpectedButGot {
+    ///         not_expected: [JSON::Object, JSON::Sequence].into(),
     ///         got: None,
     ///         location: (Relation::After, Position::new(1, 3)),
     ///     }.into()
@@ -1049,20 +843,17 @@ impl<'a> Lexer<'a> {
     ///
     /// See the [`lexer`] documentation for more information.
     ///
-    /// [`token`]: crate::a_bc::Token
-    /// [`tokens`]: crate::a_bc::Token
-    /// [`kinds`]: crate::Json
-    /// [`kind`]: crate::Json
-    /// [`NotExpectedButGot`]: crate::a_bc::error::Token::NotExpectedButGot
-    /// [`extracted`]: crate::Lexer::next()
-    /// [`input`]: crate::a_bc::lexer::Data::source()
+    /// [`token`]: a_bc::Token
+    /// [`tokens`]: a_bc::Token
+    /// [`kinds`]: crate::JSON
+    /// [`kind`]: crate::JSON
     /// [`lexer`]: crate::Lexer
     pub fn not_expect(
         &mut self,
-        kinds: &[Json],
-    ) -> Result<Token<Json>, error::Error<Json>> {
+        kinds: &[JSON],
+    ) -> Result<Token<JSON>, error::Error<JSON>> {
         self.next()
-            .ok_or(
+            .ok_or_else(|| {
                 error::Token::NotExpectedButGot {
                     not_expected: kinds.to_vec().into_boxed_slice(),
                     got: None,
@@ -1074,8 +865,8 @@ impl<'a> Lexer<'a> {
                         ),
                     ),
                 }
-                .into(),
-            )
+                .into()
+            })
             .and_then(|result| {
                 result.and_then(|token| {
                     if kinds.contains(token.kind()) {
@@ -1099,12 +890,13 @@ impl<'a> Lexer<'a> {
     }
 }
 
-impl<'a> Iterator for Lexer<'a> {
-    type Item = Result<Token<Json>, error::Error<Json>>;
+impl<'source> Iterator for Lexer<'source> {
+    type Item = Result<Token<JSON>, error::Error<JSON>>;
 
-    /// # Extracts the next [`token`] from the [`source`] data
+    /// # Extracts the next [`token`] from the source data
     ///
-    /// The [`token`] [`kind`] is dispatched on the first character:
+    /// [`Tokens`] are separated by [whitespace characters] and its kind is
+    /// determined by the first character:
     ///
     /// - `:` -> [`Colon`]
     /// - `,` -> [`Comma`]
@@ -1113,27 +905,27 @@ impl<'a> Iterator for Lexer<'a> {
     /// - `"` -> [`String`]
     /// - anything else -> [`Sequence`]
     ///
-    /// On [`cancellation request`], immediately returns the [`Cancelled`] error
-    /// and moves the [`cursor`] to the end of [`range`], so the next requested
-    /// [`token`] will be `None.`
+    /// On [`cancellation`] request, immediately returns the
+    /// [`a_bc::error::Lexer::Cancelled`] error and moves the [`cursor`] to the
+    /// end of [`range`], so the next requested [`token`] will be `None.`
     ///
     /// ---
     ///
     /// See the [`lexer`] documentation for more information.
     ///
-    /// [`token`]: crate::a_bc::Token
-    /// [`source`]: crate::a_bc::lexer::Data::source()
-    /// [`kind`]: crate::Json
-    /// [`Colon`]: crate::Json::Colon
-    /// [`Comma`]: crate::Json::Comma
-    /// [`Object`]: crate::Json::Object
-    /// [`Array`]: crate::Json::Array
-    /// [`String`]: crate::Json::String
-    /// [`Sequence`]: crate::Json::Sequence
-    /// [`cancellation request`]: crate::a_bc::Cancel::cancel()
-    /// [`Cancelled`]: crate::a_bc::error::Lexer::Cancelled
-    /// [`cursor`]: crate::a_bc::lexer::Cursor
-    /// [`range`]: crate::a_bc::lexer::Data::range()
+    /// [`Tokens`]: a_bc::Token
+    /// [`token`]: a_bc::Token
+    /// [`kind`]: crate::JSON
+    /// [`Colon`]: crate::JSON::Colon
+    /// [`Comma`]: crate::JSON::Comma
+    /// [`Object`]: crate::JSON::Object
+    /// [`Array`]: crate::JSON::Array
+    /// [`String`]: crate::JSON::String
+    /// [`Sequence`]: crate::JSON::Sequence
+    /// [`cancellation`]: a_bc::Cancel::cancel()
+    /// [`cursor`]: a_bc::lexer::Cursor
+    /// [`range`]: a_bc::lexer::Data::range()
+    /// [whitespace characters]: u8::is_ascii_whitespace()
     /// [`lexer`]: crate::Lexer
     fn next(&mut self) -> Option<Self::Item> {
         self.0.skip_whitespace();
@@ -1141,17 +933,17 @@ impl<'a> Iterator for Lexer<'a> {
         let token = self.cursor().byte().and_then(|byte| {
             let (kind, range) = match byte {
                 b':' => (
-                    Json::Colon,
+                    JSON::Colon,
                     Ok(*self.cursor().position()..self.cursor().position() + 1),
                 ),
                 b',' => (
-                    Json::Comma,
+                    JSON::Comma,
                     Ok(*self.cursor().position()..self.cursor().position() + 1),
                 ),
-                b'{' => (Json::Object, self.find_block(b'{', b'}')),
-                b'[' => (Json::Array, self.find_block(b'[', b']')),
-                b'"' => (Json::String, self.find_string()),
-                _ => (Json::Sequence, self.find_sequence()),
+                b'{' => (JSON::Object, self.find_block(b'{', b'}')),
+                b'[' => (JSON::Array, self.find_block(b'[', b']')),
+                b'"' => (JSON::String, self.find_string()),
+                _ => (JSON::Sequence, self.find_sequence()),
             };
 
             match range {
@@ -1169,778 +961,104 @@ impl<'a> Iterator for Lexer<'a> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use pretty_assertions::assert_eq;
-    use std::{
-        thread::{self, sleep},
-        time::Duration,
-    };
+/// # [`Lexer`] `builder`
+///
+/// ![](https://github.com/mnmun/images/blob/main/road_work.png?raw=true)
+///
+/// Holds the data used for the [`lexer`] creation.
+///
+/// `Builder` is a simple newtype wrapper around the [`a_bc::lexer::Builder`]
+/// type, provided for convenience when creating a [`lexer`] and implements
+/// all the same methods that the original type has.
+///
+/// ## Creation
+///
+/// Can be created using the [`Builder::new()`] method.
+///
+/// ## Build
+///
+/// After setting all the necessary fields, call the [`build()`] method to get
+/// a [`lexer`] instance.
+///
+/// ---
+///
+/// See the [`lexer`] documentation for more information.
+///
+/// [`lexer`]: crate::Lexer
+/// [`Builder::new()`]: crate::lexer::Builder::new()
+/// [`build()`]: crate::lexer::Builder::build()
+pub struct Builder<'source>(a_bc::lexer::Builder<'source>);
 
-    use crate::{
-        a_bc::{
-            Token,
-            error::{self, Relation},
-            lexer::Builder,
-        },
-        lexer::{Json, Lexer},
-    };
-
-    #[test]
-    fn cancellation() {
-        let n = 10000;
-        let source = {
-            let mut source = Vec::with_capacity(n * 2);
-
-            for i in 0..n {
-                source.extend_from_slice(format!("{}", i % 10).as_bytes());
-                source.extend_from_slice(b" ");
-            }
-
-            source
-        };
-
-        let lexer = Lexer::new(Builder::new(source).build().unwrap());
-        let flag = lexer.flag().clone();
-
-        thread::scope(|s| {
-            s.spawn(|| {
-                sleep(Duration::from_micros(1));
-                flag.cancel();
-            });
-
-            s.spawn(|| {
-                assert!(lexer.count() < n);
-            });
-        });
+impl<'source> Builder<'source> {
+    pub fn new(source: impl Into<Cow<'source, [u8]>>) -> Self {
+        Self(a_bc::lexer::Builder::new(source))
     }
 
-    #[test]
-    fn parse() {
-        let source = br#"
-            {
-                "first_name": "John",
-                "last_name": "Smith",
-                "is_alive": true,
-                "age": 27,
-                "address": {
-                    "street_address": "21 2nd Street",
-                    "city": "New York",
-                    "state": "NY",
-                    "postal_code": "10021-3100"
-                },
-                "phone_numbers": [
-                    {
-                        "type": "home",
-                        "number": "212 555-1234"
-                    },
-                    {
-                        "type": "office",
-                        "number": "646 555-4567"
-                    }
-                ],
-                "children": [
-                    "Catherine",
-                    "Thomas",
-                    "Trevor"
-                ],
-                "spouse": null
-            }
-        "#;
-
-        let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-
-        let token = lexer.expect(&[Json::Object]).unwrap();
-        assert_eq!(token.kind(), &Json::Object);
-
-        {
-            let mut lexer = Lexer::new(
-                Builder::new(source)
-                    .with_range(token.inner_range().unwrap())
-                    .build()
-                    .unwrap(),
-            );
-
-            let token = lexer
-                .not_expect(&[
-                    Json::Object,
-                    Json::Array,
-                    Json::Comma,
-                    Json::Colon,
-                ])
-                .unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), r#""first_name""#);
-            assert_eq!(token.kind(), &Json::String);
-
-            let token = lexer.expect(&[Json::Colon]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), ":");
-            assert_eq!(token.kind(), &Json::Colon);
-
-            let token = lexer.not_expect(&[Json::Comma, Json::Colon]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), r#""John""#);
-            assert_eq!(token.kind(), &Json::String);
-
-            let token = lexer.expect(&[Json::Comma]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), ",");
-            assert_eq!(token.kind(), &Json::Comma);
-
-            // ---
-
-            let token = lexer
-                .not_expect(&[
-                    Json::Object,
-                    Json::Array,
-                    Json::Comma,
-                    Json::Colon,
-                ])
-                .unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), r#""last_name""#);
-            assert_eq!(token.kind(), &Json::String);
-
-            let token = lexer.expect(&[Json::Colon]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), ":");
-            assert_eq!(token.kind(), &Json::Colon);
-
-            let token = lexer.not_expect(&[Json::Comma, Json::Colon]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), r#""Smith""#);
-            assert_eq!(token.kind(), &Json::String);
-
-            let token = lexer.expect(&[Json::Comma]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), ",");
-            assert_eq!(token.kind(), &Json::Comma);
-
-            // ---
-
-            let token = lexer
-                .not_expect(&[
-                    Json::Object,
-                    Json::Array,
-                    Json::Comma,
-                    Json::Colon,
-                ])
-                .unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), r#""is_alive""#);
-            assert_eq!(token.kind(), &Json::String);
-
-            let token = lexer.expect(&[Json::Colon]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), ":");
-            assert_eq!(token.kind(), &Json::Colon);
-
-            let token = lexer.not_expect(&[Json::Comma, Json::Colon]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), "true");
-            assert_eq!(token.kind(), &Json::Sequence);
-
-            let token = lexer.expect(&[Json::Comma]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), ",");
-            assert_eq!(token.kind(), &Json::Comma);
-
-            // ---
-
-            let token = lexer
-                .not_expect(&[
-                    Json::Object,
-                    Json::Array,
-                    Json::Comma,
-                    Json::Colon,
-                ])
-                .unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), r#""age""#);
-            assert_eq!(token.kind(), &Json::String);
-
-            let token = lexer.expect(&[Json::Colon]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), ":");
-            assert_eq!(token.kind(), &Json::Colon);
-
-            let token = lexer.not_expect(&[Json::Comma, Json::Colon]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), "27");
-            assert_eq!(token.kind(), &Json::Sequence);
-
-            let token = lexer.expect(&[Json::Comma]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), ",");
-            assert_eq!(token.kind(), &Json::Comma);
-
-            // ---
-
-            let token = lexer
-                .not_expect(&[
-                    Json::Object,
-                    Json::Array,
-                    Json::Comma,
-                    Json::Colon,
-                ])
-                .unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), r#""address""#);
-            assert_eq!(token.kind(), &Json::String);
-
-            let token = lexer.expect(&[Json::Colon]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), ":");
-            assert_eq!(token.kind(), &Json::Colon);
-
-            let token = lexer.expect(&[Json::Object]).unwrap();
-            assert_eq!(token.kind(), &Json::Object);
-            {
-                let mut lexer = Lexer::new(
-                    Builder::new(source)
-                        .with_range(token.inner_range().unwrap())
-                        .build()
-                        .unwrap(),
-                );
-
-                let token = lexer
-                    .not_expect(&[
-                        Json::Object,
-                        Json::Array,
-                        Json::Comma,
-                        Json::Colon,
-                    ])
-                    .unwrap();
-                assert_eq!(
-                    lexer.format(&token).unwrap(),
-                    r#""street_address""#
-                );
-                assert_eq!(token.kind(), &Json::String);
-
-                let token = lexer.expect(&[Json::Colon]).unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), ":");
-                assert_eq!(token.kind(), &Json::Colon);
-
-                let token =
-                    lexer.not_expect(&[Json::Comma, Json::Colon]).unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), r#""21 2nd Street""#);
-                assert_eq!(token.kind(), &Json::String);
-
-                let token = lexer.expect(&[Json::Comma]).unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), ",");
-                assert_eq!(token.kind(), &Json::Comma);
-
-                // ---
-
-                let token = lexer
-                    .not_expect(&[
-                        Json::Object,
-                        Json::Array,
-                        Json::Comma,
-                        Json::Colon,
-                    ])
-                    .unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), r#""city""#);
-                assert_eq!(token.kind(), &Json::String);
-
-                let token = lexer.expect(&[Json::Colon]).unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), ":");
-                assert_eq!(token.kind(), &Json::Colon);
-
-                let token =
-                    lexer.not_expect(&[Json::Comma, Json::Colon]).unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), r#""New York""#);
-                assert_eq!(token.kind(), &Json::String);
-
-                let token = lexer.expect(&[Json::Comma]).unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), ",");
-                assert_eq!(token.kind(), &Json::Comma);
-
-                // ---
-
-                let token = lexer
-                    .not_expect(&[
-                        Json::Object,
-                        Json::Array,
-                        Json::Comma,
-                        Json::Colon,
-                    ])
-                    .unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), r#""state""#);
-                assert_eq!(token.kind(), &Json::String);
-
-                let token = lexer.expect(&[Json::Colon]).unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), ":");
-                assert_eq!(token.kind(), &Json::Colon);
-
-                let token =
-                    lexer.not_expect(&[Json::Comma, Json::Colon]).unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), r#""NY""#);
-                assert_eq!(token.kind(), &Json::String);
-
-                let token = lexer.expect(&[Json::Comma]).unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), ",");
-                assert_eq!(token.kind(), &Json::Comma);
-
-                // ---
-
-                let token = lexer
-                    .not_expect(&[
-                        Json::Object,
-                        Json::Array,
-                        Json::Comma,
-                        Json::Colon,
-                    ])
-                    .unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), r#""postal_code""#);
-                assert_eq!(token.kind(), &Json::String);
-
-                let token = lexer.expect(&[Json::Colon]).unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), ":");
-                assert_eq!(token.kind(), &Json::Colon);
-
-                let token =
-                    lexer.not_expect(&[Json::Comma, Json::Colon]).unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), r#""10021-3100""#);
-                assert_eq!(token.kind(), &Json::String);
-            }
-
-            let token = lexer.expect(&[Json::Comma]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), ",");
-            assert_eq!(token.kind(), &Json::Comma);
-
-            // ---
-
-            let token = lexer
-                .not_expect(&[
-                    Json::Object,
-                    Json::Array,
-                    Json::Comma,
-                    Json::Colon,
-                ])
-                .unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), r#""phone_numbers""#);
-            assert_eq!(token.kind(), &Json::String);
-
-            let token = lexer.expect(&[Json::Colon]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), ":");
-            assert_eq!(token.kind(), &Json::Colon);
-
-            let token = lexer.expect(&[Json::Array]).unwrap();
-            assert_eq!(token.kind(), &Json::Array);
-
-            {
-                let mut lexer = Lexer::new(
-                    Builder::new(source)
-                        .with_range(token.inner_range().unwrap())
-                        .build()
-                        .unwrap(),
-                );
-
-                let token = lexer.expect(&[Json::Object]).unwrap();
-                assert_eq!(token.kind(), &Json::Object);
-
-                {
-                    let mut lexer = Lexer::new(
-                        Builder::new(source)
-                            .with_range(token.inner_range().unwrap())
-                            .build()
-                            .unwrap(),
-                    );
-
-                    let token = lexer
-                        .not_expect(&[
-                            Json::Object,
-                            Json::Array,
-                            Json::Comma,
-                            Json::Colon,
-                        ])
-                        .unwrap();
-                    assert_eq!(lexer.format(&token).unwrap(), r#""type""#);
-                    assert_eq!(token.kind(), &Json::String);
-
-                    let token = lexer.expect(&[Json::Colon]).unwrap();
-                    assert_eq!(lexer.format(&token).unwrap(), ":");
-                    assert_eq!(token.kind(), &Json::Colon);
-
-                    let token =
-                        lexer.not_expect(&[Json::Comma, Json::Colon]).unwrap();
-                    assert_eq!(lexer.format(&token).unwrap(), r#""home""#);
-                    assert_eq!(token.kind(), &Json::String);
-
-                    let token = lexer.expect(&[Json::Comma]).unwrap();
-                    assert_eq!(lexer.format(&token).unwrap(), ",");
-                    assert_eq!(token.kind(), &Json::Comma);
-
-                    // ---
-
-                    let token = lexer
-                        .not_expect(&[
-                            Json::Object,
-                            Json::Array,
-                            Json::Comma,
-                            Json::Colon,
-                        ])
-                        .unwrap();
-                    assert_eq!(lexer.format(&token).unwrap(), r#""number""#);
-                    assert_eq!(token.kind(), &Json::String);
-
-                    let token = lexer.expect(&[Json::Colon]).unwrap();
-                    assert_eq!(lexer.format(&token).unwrap(), ":");
-                    assert_eq!(token.kind(), &Json::Colon);
-
-                    let token =
-                        lexer.not_expect(&[Json::Comma, Json::Colon]).unwrap();
-                    assert_eq!(
-                        lexer.format(&token).unwrap(),
-                        r#""212 555-1234""#
-                    );
-                    assert_eq!(token.kind(), &Json::String);
-                }
-
-                let token = lexer.expect(&[Json::Comma]).unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), ",");
-                assert_eq!(token.kind(), &Json::Comma);
-
-                // ---
-
-                let token = lexer.expect(&[Json::Object]).unwrap();
-                assert_eq!(token.kind(), &Json::Object);
-
-                {
-                    let mut lexer = Lexer::new(
-                        Builder::new(source)
-                            .with_range(token.inner_range().unwrap())
-                            .build()
-                            .unwrap(),
-                    );
-
-                    let token = lexer
-                        .not_expect(&[
-                            Json::Object,
-                            Json::Array,
-                            Json::Comma,
-                            Json::Colon,
-                        ])
-                        .unwrap();
-                    assert_eq!(lexer.format(&token).unwrap(), r#""type""#);
-                    assert_eq!(token.kind(), &Json::String);
-
-                    let token = lexer.expect(&[Json::Colon]).unwrap();
-                    assert_eq!(lexer.format(&token).unwrap(), ":");
-                    assert_eq!(token.kind(), &Json::Colon);
-
-                    let token =
-                        lexer.not_expect(&[Json::Comma, Json::Colon]).unwrap();
-                    assert_eq!(lexer.format(&token).unwrap(), r#""office""#);
-                    assert_eq!(token.kind(), &Json::String);
-
-                    let token = lexer.expect(&[Json::Comma]).unwrap();
-                    assert_eq!(lexer.format(&token).unwrap(), ",");
-                    assert_eq!(token.kind(), &Json::Comma);
-
-                    // ---
-
-                    let token = lexer
-                        .not_expect(&[
-                            Json::Object,
-                            Json::Array,
-                            Json::Comma,
-                            Json::Colon,
-                        ])
-                        .unwrap();
-                    assert_eq!(lexer.format(&token).unwrap(), r#""number""#);
-                    assert_eq!(token.kind(), &Json::String);
-
-                    let token = lexer.expect(&[Json::Colon]).unwrap();
-                    assert_eq!(lexer.format(&token).unwrap(), ":");
-                    assert_eq!(token.kind(), &Json::Colon);
-
-                    let token =
-                        lexer.not_expect(&[Json::Comma, Json::Colon]).unwrap();
-                    assert_eq!(
-                        lexer.format(&token).unwrap(),
-                        r#""646 555-4567""#
-                    );
-                    assert_eq!(token.kind(), &Json::String);
-                }
-            }
-
-            let token = lexer.expect(&[Json::Comma]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), ",");
-            assert_eq!(token.kind(), &Json::Comma);
-
-            // ---
-
-            let token = lexer
-                .not_expect(&[
-                    Json::Object,
-                    Json::Array,
-                    Json::Comma,
-                    Json::Colon,
-                ])
-                .unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), r#""children""#);
-            assert_eq!(token.kind(), &Json::String);
-
-            let token = lexer.expect(&[Json::Colon]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), ":");
-            assert_eq!(token.kind(), &Json::Colon);
-
-            let token = lexer.expect(&[Json::Array]).unwrap();
-            assert_eq!(token.kind(), &Json::Array);
-
-            {
-                let mut lexer = Lexer::new(
-                    Builder::new(source)
-                        .with_range(token.inner_range())
-                        .build()
-                        .unwrap(),
-                );
-
-                let token =
-                    lexer.not_expect(&[Json::Colon, Json::Comma]).unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), r#""Catherine""#);
-                assert_eq!(token.kind(), &Json::String);
-
-                let token = lexer.expect(&[Json::Comma]).unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), ",");
-                assert_eq!(token.kind(), &Json::Comma);
-
-                // ---
-
-                let token =
-                    lexer.not_expect(&[Json::Colon, Json::Comma]).unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), r#""Thomas""#);
-                assert_eq!(token.kind(), &Json::String);
-
-                let token = lexer.expect(&[Json::Comma]).unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), ",");
-                assert_eq!(token.kind(), &Json::Comma);
-
-                // ---
-
-                let token =
-                    lexer.not_expect(&[Json::Colon, Json::Comma]).unwrap();
-                assert_eq!(lexer.format(&token).unwrap(), r#""Trevor""#);
-                assert_eq!(token.kind(), &Json::String);
-            }
-
-            let token = lexer.expect(&[Json::Comma]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), ",");
-            assert_eq!(token.kind(), &Json::Comma);
-
-            // ---
-
-            let token = lexer
-                .not_expect(&[
-                    Json::Object,
-                    Json::Array,
-                    Json::Comma,
-                    Json::Colon,
-                ])
-                .unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), r#""spouse""#);
-            assert_eq!(token.kind(), &Json::String);
-
-            let token = lexer.expect(&[Json::Colon]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), ":");
-            assert_eq!(token.kind(), &Json::Colon);
-
-            let token = lexer.not_expect(&[Json::Comma, Json::Colon]).unwrap();
-            assert_eq!(lexer.format(&token).unwrap(), "null");
-            assert_eq!(token.kind(), &Json::Sequence);
-        }
+    pub fn build(self) -> Result<Lexer<'source>, error::Lexer> {
+        Ok(Lexer(self.0.build()?))
+    }
+}
+
+impl Builder<'_> {
+    /// See the [`builder`] documentation for more information.
+    ///
+    /// [`builder`]: crate::lexer::Builder
+    pub fn set_range(
+        &mut self,
+        value: impl Into<Option<Range<usize>>>,
+    ) -> &mut Self {
+        self.0.set_range(value);
+        self
     }
 
-    #[test]
-    fn empty_source() {
-        let source = b"";
-
-        assert_eq!(
-            Err(error::Lexer::SourceIsEmpty),
-            Builder::new(source).build()
-        );
+    /// See the [`builder`] documentation for more information.
+    ///
+    /// [`builder`]: crate::lexer::Builder
+    pub fn set_position(
+        &mut self,
+        value: impl Into<Option<usize>>,
+    ) -> &mut Self {
+        self.0.set_position(value);
+        self
     }
 
-    #[test]
-    fn find_block() {
-        let source = b"{123}";
+    /// See the [`builder`] documentation for more information.
+    ///
+    /// [`builder`]: crate::lexer::Builder
+    pub fn set_flag(&mut self, value: impl Into<Option<Cancel>>) -> &mut Self {
+        self.0.set_flag(value);
+        self
+    }
+}
 
-        let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-        let block_range = lexer.find_block(b'{', b'}').unwrap();
-        assert_eq!(block_range, 0..5);
+impl Builder<'_> {
+    /// See the [`builder`] documentation for more information.
+    ///
+    /// [`builder`]: crate::lexer::Builder
+    #[must_use = "method returns the modified value"]
+    pub fn with_range(
+        mut self,
+        value: impl Into<Option<Range<usize>>>,
+    ) -> Self {
+        self.0.set_range(value);
+        self
     }
 
-    #[test]
-    fn find_complicated_block() {
-        let source = br#"{ "} {" }"#;
-
-        let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-        let block_range = lexer.find_block(b'{', b'}').unwrap();
-        assert_eq!(block_range, 0..9);
+    /// See the [`builder`] documentation for more information.
+    ///
+    /// [`builder`]: crate::lexer::Builder
+    #[must_use = "method returns the modified value"]
+    pub fn with_position(mut self, value: impl Into<Option<usize>>) -> Self {
+        self.0.set_position(value);
+        self
     }
 
-    #[test]
-    fn colon() {
-        let source = b":";
-
-        let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-        let token = lexer.next();
-        assert_eq!(token, Some(Ok(Token::new(Json::Colon, 0..1))));
-
-        let token = lexer.next();
-        assert_eq!(token, None);
-        assert_eq!(*lexer.cursor().position(), 1);
-    }
-
-    #[test]
-    fn comma() {
-        let source = b",";
-
-        let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-        let token = lexer.next();
-        assert_eq!(token, Some(Ok(Token::new(Json::Comma, 0..1))));
-
-        let token = lexer.next();
-        assert_eq!(token, None);
-        assert_eq!(*lexer.cursor().position(), 1);
-    }
-
-    #[test]
-    fn empty_object() {
-        let source = b"{}";
-
-        let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-        let token = lexer.next();
-        assert_eq!(token, Some(Ok(Token::new(Json::Object, 0..2))));
-
-        let token = lexer.next();
-        assert_eq!(token, None);
-        assert_eq!(*lexer.cursor().position(), 2);
-    }
-
-    #[test]
-    fn empty_array() {
-        let source = b"[]";
-
-        let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-        let token = lexer.next();
-        assert_eq!(token, Some(Ok(Token::new(Json::Array, 0..2))));
-
-        let token = lexer.next();
-        assert_eq!(token, None);
-        assert_eq!(*lexer.cursor().position(), 2);
-    }
-
-    #[test]
-    fn empty_string() {
-        let source = br#""""#;
-
-        let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-        let token = lexer.next();
-        assert_eq!(token, Some(Ok(Token::new(Json::String, 0..2))));
-
-        let token = lexer.next();
-        assert_eq!(token, None);
-        assert_eq!(*lexer.cursor().position(), 2);
-    }
-
-    #[test]
-    fn filled_object() {
-        let source = br#"{"name":"value"}"#;
-
-        let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-        let token = lexer.next();
-        assert_eq!(token, Some(Ok(Token::new(Json::Object, 0..16))));
-
-        let token = lexer.next();
-        assert_eq!(token, None);
-        assert_eq!(*lexer.cursor().position(), 16);
-    }
-
-    #[test]
-    fn incomplete_object() {
-        let source = br#"{"name":"value""#;
-
-        let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-        let token = lexer.next();
-        assert_eq!(
-            token,
-            Some(Err(error::Token::PairNotFound {
-                opening: "{".into(),
-                closing: "}".into(),
-                location: (Relation::After, (1, 1).into())
-            }
-            .into()))
-        );
-    }
-
-    #[test]
-    fn filled_array() {
-        let source = b"[1,2,3,4,5,6,7,8,9,0]";
-
-        let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-        let token = lexer.next();
-        assert_eq!(token, Some(Ok(Token::new(Json::Array, 0..21))));
-
-        let token = lexer.next();
-        assert_eq!(token, None);
-        assert_eq!(*lexer.cursor().position(), 21);
-    }
-
-    #[test]
-    fn incomplete_array() {
-        let source = b"[1,2,3,4,5,6,7,8,9,0";
-
-        let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-        let token = lexer.next();
-        assert_eq!(
-            token,
-            Some(Err(error::Token::PairNotFound {
-                opening: "[".into(),
-                closing: "]".into(),
-                location: (Relation::After, (1, 1).into())
-            }
-            .into()))
-        );
-    }
-
-    #[test]
-    fn filled_string() {
-        let source = br#""John""#;
-
-        let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-        let token = lexer.next();
-        assert_eq!(token, Some(Ok(Token::new(Json::String, 0..6))));
-
-        let token = lexer.next();
-        assert_eq!(token, None);
-        assert_eq!(*lexer.cursor().position(), 6);
-    }
-
-    #[test]
-    fn escaped_string() {
-        let source = br#""a\"b""#;
-
-        let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-        let token = lexer.next();
-        assert_eq!(token, Some(Ok(Token::new(Json::String, 0..6))));
-
-        let token = lexer.next();
-        assert_eq!(token, None);
-        assert_eq!(*lexer.cursor().position(), 6);
-    }
-
-    #[test]
-    fn incomplete_string() {
-        let source = br#""John"#;
-
-        let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-        let token = lexer.next();
-        assert_eq!(
-            token,
-            Some(Err(error::Token::PairNotFound {
-                opening: "\"".into(),
-                closing: "\"".into(),
-                location: (Relation::After, (1, 1).into())
-            }
-            .into()))
-        );
-    }
-
-    #[test]
-    fn sequence() {
-        let source = b"asd123qwe456";
-
-        let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-        let token = lexer.next();
-        assert_eq!(token, Some(Ok(Token::new(Json::Sequence, 0..12))));
-
-        let token = lexer.next();
-        assert_eq!(token, None);
+    /// See the [`builder`] documentation for more information.
+    ///
+    /// [`builder`]: crate::lexer::Builder
+    #[must_use = "method returns the modified value"]
+    pub fn with_flag(mut self, value: impl Into<Option<Cancel>>) -> Self {
+        self.0.set_flag(value);
+        self
     }
 }

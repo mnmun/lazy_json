@@ -1,100 +1,64 @@
-//! # Lazy JSON
-//!
-//! ![](https://github.com/mnmun/images/blob/main/lounge.png?raw=true)
-//!
-//! Provides the following lazy JSON utilities:
-//!
-//! - [`Lexer`]: Based on the [`a_bc`] crate;
-//! - [`Parser`]: Implemented using the [`lexer`] and the lazily [`populated`]
-//!   [`tree`] from the [`lazy_tree`] crate.
+//! Provides a JSON [`lexer`] and [`parser`].
 //!
 //! ## [`Lexer`]
 //!
-//! ![](https://github.com/mnmun/images/blob/main/paper.png?raw=true)
+//! ![](https://github.com/mnmun/images/blob/main/box.png?raw=true)
 //!
-//! The [`lexer`] [`extracts`] [`tokens`] of the following [`kinds`] from a
-//! [`source`] data:
+//! Implemented using the [a_bc] crate.
 //!
-//! - [`Comma`] - the `,` character;
-//! - [`Colon`] - the `:` character;
-//! - [`Object`] - the `{` and `}` characters together with every character
-//!   between them;
-//! - [`Array`] - the `[` and `]` characters together with every character
-//!   between them;
-//! - [`String`] - the `"` and `"` characters together with every character
-//!   between them;
-//! - [`Sequence`] - a contiguous run of characters; [`whitespace`] as well as
-//!   the `:` and `,` characters act as separators.
+//! Splits the JSON source data into tokens of the following [`kinds`]:
 //!
-//! [`Tokens`] may be separated by any number of [`whitespace characters`].
+//! - [`Comma`] - comma `,` character;
+//! - [`Colon`] - colon `:` character;
+//! - [`Object`] - curly braces `{` `}` and all characters between them;
+//! - [`Array`] - square brackets `[` `]` and all characters between them;
+//! - [`String`] - double quotes `"` `"` and all characters between them;
+//! - [`Sequence`] - a contiguous run of characters: numbers, `true`, `false`,
+//!   `null`, etc.; [whitespace characters] as well as the `:` and `,`
+//!   characters act as separators.
 //!
-//! Unlike lexers that examine the characters of the source data one by one
-//! this [`lexer`] skips a portion of the characters and leaves them unexamined.
-//! Put differently, within the given hierarchical structure of JSON, the
-//! [`lexer`] [`extracts`] only the top-level [`tokens`].
-//!
-//! ### Use cases
-//!
-//! The [`lexer`] was originally designed to back the lazy JSON [`parser`], but
-//! it can equally be used on its own. It [`extracts`] only top-level
-//! [`tokens`], skipping the characters of deeper [`tokens`] that are not
-//! currently being [`extracted`]. This approach may be beneficial for large
-//! JSON data with deep nesting.
-//!
-//! ### Example
-//!
-//! The following example shows how [`tokens`] are [`extracted`] from the
-//! [`source`] data:
+//! [`Lexer`] can be created using a [`builder`](crate::lexer::Builder), and
+//! [`tokens`] can be extracted using the [`next()`] method:
 //!
 //! ```rust
-//! use pretty_assertions::assert_eq;
+//! # use pretty_assertions::assert_eq;
+//! #
+//! use lazy_json::{JSON, Lexer, lexer::Builder, a_bc::Token};
 //!
-//! use lazy_json::{
-//!     Json,
-//!     Lexer,
-//!     a_bc::{
-//!         lexer::Builder,
-//!         token::Token,
-//!     },
-//! };
+//! let source: &'static [u8] = br#" "name": "value" "#;
 //!
-//! let source: &[u8] = br#" "name": "John Smith" "#;
+//! let mut lexer: Lexer = Builder::new(source).build().unwrap();
 //!
-//! let mut lexer = Lexer::new(Builder::new(source).build().unwrap());
-//!
-//! let token = lexer.next().unwrap().unwrap();
-//! assert_eq!(*token.kind(), Json::String);
+//! let token: Token<JSON> = lexer.next().unwrap().unwrap();
+//! assert_eq!(token.kind(), &JSON::String);
 //! assert_eq!(lexer.format(&token).unwrap(), r#""name""#);
 //!
-//! let token = lexer.next().unwrap().unwrap();
-//! assert_eq!(*token.kind(), Json::Colon);
+//! let token: Token<JSON> = lexer.next().unwrap().unwrap();
+//! assert_eq!(token.kind(), &JSON::Colon);
 //! assert_eq!(lexer.format(&token).unwrap(), ":");
 //!
-//! let token = lexer.next().unwrap().unwrap();
-//! assert_eq!(*token.kind(), Json::String);
-//! assert_eq!(lexer.format(&token).unwrap(), r#""John Smith""#);
-//!
-//! let token = lexer.next();
-//! assert_eq!(token, None);
+//! let token: Token<JSON> = lexer.next().unwrap().unwrap();
+//! assert_eq!(token.kind(), &JSON::String);
+//! assert_eq!(lexer.format(&token).unwrap(), r#""value""#);
 //! ```
 //!
 //! ## [`Parser`]
 //!
-//! ![](https://github.com/mnmun/images/blob/main/scissors.png?raw=true)
+//! ![](https://github.com/mnmun/images/blob/main/cart.png?raw=true)
 //!
-//! The [`parser`] represents the [`source`] data as a hierarchical structure of
-//! [`nodes`] and provides a [`cursors`] to traverse it. The [`parser`] does not
-//! build the whole [`tree`] at once: the [`nodes`] are [`populated`] lazily
-//! when visited by [`cursors`] and remain available only while they are needed.
+//! Implemented using the [`lexer`] and the [lazy_tree] crate for the [tokio]
+//! runtime.
+//!
+//! Represents a JSON string data as a [`tree`] of lazily-created [`nodes`]:
 //!
 //! ```text
-//!    *Source data*               *Parsed tree*
+//!    *Source data*                *Parsed tree*
 //!
-//! {                              *Source data*
-//!   "object": {                ┌───────┴───────┐
-//!     "string": "foo",       object          array
-//!     "number": 42         ┌───┴───┐     ┌─────┼─────┐
-//!   },                   string  number true false  null
+//! {                               *Source data*
+//!   "object": {                ┌────────┴────────┐
+//!     "string": "foo",       object            array
+//!     "number": 42         ┌───┴───┐       ┌─────┼─────┐
+//!   },                   string  number   true false  null
 //!   "array": [             │       │
 //!     true,               foo      42
 //!     false,
@@ -103,36 +67,35 @@
 //! }
 //! ```
 //!
-//! ### Use cases
+//! [`Nodes`] are created automatically when the [`cursor`] needs to access them
+//! and are deleted when they are no longer used.
 //!
-//! The [`parser`] may be beneficial for large JSON data with deep nesting, as
-//! it does not build the whole [`tree`] up front but [`creates`] [`nodes`]
-//! lazily, only when they are actually needed.
-//!
-//! ### Example
-//!
-//! The following example demonstrates JSON parsing and the resulting [`tree`]
-//! traversal using [`cursors`]:
+//! [`Parser`] can be created using a [`builder`](crate::parser::Builder), and
+//! the [`tree`] of lazily-created [`nodes`] can be traversed using a
+//! [`cursor`]:
 //!
 //! ```rust
-//! use pretty_assertions::assert_eq;
-//!
+//! # use pretty_assertions::assert_eq;
+//! #
 //! use lazy_json::{
-//!     lazy_tree::cursor::{Direction, Target},
-//!     Json,
-//!     Parser,
+//!     JSON, Parser,
+//!     parser::{Builder, Bundle},
+//!     a_bc::Error,
+//!     lazy_tree::{Cursor, cursor::{Direction, Target}},
 //! };
 //!
+//! # #[tokio::main]
+//! # async fn main() {
 //! //
-//! //             source
-//! //       ┌───────┴───────┐
-//! //     object          array
-//! //   ┌───┴───┐     ┌─────┼─────┐
-//! // string  number true false  null
+//! //              source
+//! //       ┌────────┴────────┐
+//! //     object            array
+//! //   ┌───┴───┐       ┌─────┼─────┐
+//! // string  number   true false  null
 //! //   │       │
 //! //  foo      42
 //! //
-//! let source = r#"
+//! let source: &'static str = r#"
 //! {
 //!   "object": {
 //!     "string": "foo",
@@ -146,40 +109,25 @@
 //! }
 //! "#;
 //!
-//! let parser = Parser::new(source).unwrap();
+//! let parser: Parser = Builder::new(source).build().unwrap();
 //!
-//! // After creation, the cursor points to the tree root node:
-//! let mut cursor = parser.cursor().unwrap();
-//! assert_eq!(*cursor.value().kind(), Json::Object);
-//! assert_eq!(*cursor.value().content(), source);
-//! assert_eq!(
-//!     cursor.children().iter().map(|child|
-//!         *child.value().content()
-//!     ).collect::<Vec<&str>>(),
-//!     ["object", "array"]
-//! );
+//! let mut cursor: Cursor<Bundle, Error<JSON>> =
+//!     parser.cursor().await.unwrap();
+//! assert_eq!(cursor.kind(), &JSON::Object);
+//! assert_eq!(cursor.content(), source);
 //!
-//! // The cursor descends into the first child node of the root - `object`:
-//! assert!(cursor.walk(Direction::Down(Target::First)).unwrap());
-//! assert_eq!(*cursor.value().kind(), Json::Object);
-//! assert_eq!(*cursor.value().content(), "object");
-//! assert_eq!(
-//!     cursor.children().iter().map(|child|
-//!         *child.value().content()
-//!     ).collect::<Vec<&str>>(),
-//!     ["string", "number"]
-//! );
+//! cursor.walk(Direction::Down(Target::First)).await.unwrap();
+//! assert_eq!(cursor.kind(), &JSON::Object);
+//! assert_eq!(cursor.content(), "object");
 //!
-//! // The cursor moves to the next sibling node - `array`:
-//! assert!(cursor.walk(Direction::Right).unwrap());
-//! assert_eq!(*cursor.value().kind(), Json::Array);
-//! assert_eq!(*cursor.value().content(), "array");
-//! assert_eq!(
-//!     cursor.children().iter().map(|child|
-//!         *child.value().content()
-//!     ).collect::<Vec<&str>>(),
-//!     ["true", "false", "null"]
-//! );
+//! cursor.jump(Direction::Left).await.unwrap();
+//! assert_eq!(cursor.kind(), &JSON::Array);
+//! assert_eq!(cursor.content(), "array");
+//!
+//! cursor.go_to(&[0, 0, 1, 0]).await.unwrap();
+//! assert_eq!(cursor.kind(), &JSON::Sequence);
+//! assert_eq!(cursor.content(), "42");
+//! # }
 //! ```
 //!
 //! ## License
@@ -188,27 +136,24 @@
 //!
 //! [`lexer`]: crate::Lexer
 //! [`parser`]: crate::Parser
-//! [`extracts`]: crate::Lexer::next()
-//! [`extracted`]: crate::Lexer::next()
+//! [`kinds`]: crate::JSON
+//! [`Comma`]: crate::JSON::Comma
+//! [`Colon`]: crate::JSON::Colon
+//! [`Object`]: crate::JSON::Object
+//! [`Array`]: crate::JSON::Array
+//! [`String`]: crate::JSON::String
+//! [`Sequence`]: crate::JSON::Sequence
+//! [whitespace characters]: u8::is_ascii_whitespace()
 //! [`tokens`]: crate::a_bc::Token
-//! [`Tokens`]: crate::a_bc::Token
-//! [`kinds`]: crate::Json
-//! [`source`]: crate::a_bc::lexer::Data::source()
-//! [`Comma`]: crate::Json::Comma
-//! [`Colon`]: crate::Json::Colon
-//! [`Object`]: crate::Json::Object
-//! [`Array`]: crate::Json::Array
-//! [`String`]: crate::Json::String
-//! [`Sequence`]: crate::Json::Sequence
-//! [`whitespace`]: u8::is_ascii_whitespace()
-//! [`whitespace characters`]: u8::is_ascii_whitespace()
-//! [`cursors`]: crate::lazy_tree::Cursor
+//! [`next()`]: crate::Lexer::next()
 //! [`tree`]: crate::lazy_tree::Tree
-//! [`nodes`]: crate::lazy_tree::Node
-//! [`populated`]: crate::lazy_tree::node::Callback
-//! [`creates`]: crate::lazy_tree::node::Callback
+//! [`node`]: crate::lazy_tree::Node
+//! [`Nodes`]: crate::lazy_tree::Node
+//! [`cursor`]: crate::lazy_tree::Cursor
+//! [a_bc]: crate::a_bc
+//! [lazy_tree]: crate::lazy_tree
+//! [tokio]: https://docs.rs/tokio/latest/tokio/
 
-#![allow(dead_code)]
 #![deny(rustdoc::broken_intra_doc_links)]
 #![deny(rustdoc::private_intra_doc_links)]
 #![deny(rustdoc::missing_crate_level_docs)]
@@ -221,7 +166,11 @@
 pub mod lexer;
 pub mod parser;
 
+pub use lexer::{JSON, Lexer};
+pub use parser::{Bundle, Parser};
+
 pub use a_bc;
 pub use lazy_tree;
-pub use lexer::{Json, Lexer};
-pub use parser::{Bundle, Cursor, Parser};
+
+#[cfg(test)]
+mod tests;
