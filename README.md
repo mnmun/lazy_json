@@ -1,12 +1,12 @@
 # lazy_json
 
-Provides a JSON `lexer` and `parser`.
+Provides a `lexer` that extracts `tokens` at the current level of the hierarchy and a `parser` that represents source data as a `tree` of lazily-created `nodes`.
 
 ## `Lexer`
 
 ![](https://github.com/mnmun/images/blob/main/box.png?raw=true)
 
-Implemented using the [a_bc](https://github.com/mnmun/a_bc/tree/main) crate.
+Implemented using the [`a_bc`](https://github.com/mnmun/a_bc) crate.
 
 Splits the JSON source data into tokens of the following kinds:
 
@@ -43,7 +43,7 @@ assert_eq!(lexer.format(&token).unwrap(), r#""value""#);
 
 ![](https://github.com/mnmun/images/blob/main/cart.png?raw=true)
 
-Implemented using the `lexer` and the [lazy_tree](https://github.com/mnmun/lazy_tree/tree/main) crate for the [tokio](https://docs.rs/tokio/latest/tokio/) runtime.
+Implemented using the `lexer` and the [`lazy_tree`](https://github.com/mnmun/lazy_tree) crate.
 
 Represents a JSON string data as a `tree` of lazily-created `nodes`:
 

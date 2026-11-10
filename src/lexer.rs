@@ -487,7 +487,7 @@ impl<'source> Lexer<'source> {
     ///
     /// - [`a_bc::error::Token::PairNotFound`] - the `closing` delimiter
     ///   character is never found;
-    /// - [`a_bc::error::Lexer::Cancelled`] - [`cancellation`] is requested
+    /// - [`a_bc::error::Lexer::Cancelled`] - cancellation is [`requested`]
     ///   mid-scan.
     ///
     /// ## Example
@@ -510,7 +510,7 @@ impl<'source> Lexer<'source> {
     /// See the [`module`] documentation for more information.
     ///
     /// [`cursor`]: crate::a_bc::Lexer::cursor()
-    /// [`cancellation`]: crate::a_bc::Cancel
+    /// [`requested`]: crate::a_bc::cancellation::Flag::cancel()
     /// [`module`]: crate::lexer
     pub(crate) fn find_string(
         &mut self,
@@ -586,8 +586,8 @@ impl<'source> Lexer<'source> {
     ///
     /// ## Errors
     ///
-    /// Returns [`a_bc::error::Lexer::Cancelled`] if [`cancellation`] is
-    /// requested mid-scan.
+    /// Returns [`a_bc::error::Lexer::Cancelled`] if cancellation is
+    /// [`requested`] mid-scan.
     ///
     /// ## Example
     ///
@@ -609,7 +609,7 @@ impl<'source> Lexer<'source> {
     /// See the [`module`] documentation for more information.
     ///
     /// [`cursor`]: crate::a_bc::Lexer::cursor()
-    /// [`cancellation`]: crate::a_bc::Cancel
+    /// [`requested`]: crate::a_bc::cancellation::Flag::cancel()
     /// [`module`]: crate::lexer
     pub(crate) fn find_sequence(
         &mut self,

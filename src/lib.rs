@@ -1,10 +1,12 @@
-//! Provides a JSON [`lexer`] and [`parser`].
+//! Provides a [`lexer`] that extracts [`tokens`] at the current level of the
+//! hierarchy and a [`parser`] that represents source data as a [`tree`] of
+//! lazily-created [`nodes`].
 //!
 //! ## [`Lexer`]
 //!
 //! ![](https://github.com/mnmun/images/blob/main/box.png?raw=true)
 //!
-//! Implemented using the [a_bc] crate.
+//! Implemented using the [`a_bc`] crate.
 //!
 //! Splits the JSON source data into tokens of the following [`kinds`]:
 //!
@@ -46,8 +48,7 @@
 //!
 //! ![](https://github.com/mnmun/images/blob/main/cart.png?raw=true)
 //!
-//! Implemented using the [`lexer`] and the [lazy_tree] crate for the [tokio]
-//! runtime.
+//! Implemented using the [`lexer`] and the [`lazy_tree`] crate.
 //!
 //! Represents a JSON string data as a [`tree`] of lazily-created [`nodes`]:
 //!
@@ -150,9 +151,6 @@
 //! [`node`]: crate::lazy_tree::Node
 //! [`Nodes`]: crate::lazy_tree::Node
 //! [`cursor`]: crate::lazy_tree::Cursor
-//! [a_bc]: crate::a_bc
-//! [lazy_tree]: crate::lazy_tree
-//! [tokio]: https://docs.rs/tokio/latest/tokio/
 
 #![deny(rustdoc::broken_intra_doc_links)]
 #![deny(rustdoc::private_intra_doc_links)]

@@ -42,7 +42,7 @@ struct Cache {
 /// ![](https://github.com/mnmun/images/blob/main/cherry.png?raw=true)
 ///
 /// The [`parser`] is implemented on top of a [`tree`] of lazily-created
-/// [`nodes`] from the [lazy_tree] crate, and the `Bundle` acts as a data
+/// [`nodes`] from the [`lazy_tree`] crate, and the `Bundle` acts as a data
 /// type stored in each [`node`] of the [`tree`].
 ///
 /// The `content` field is represented as a string slice `&str` and can be
@@ -95,7 +95,6 @@ struct Cache {
 /// [`cursor`]: crate::lazy_tree::Cursor
 /// [`Deref`]: std::ops::Deref
 /// [`Parser::cursor()`]: crate::Parser::cursor()
-/// [lazy_tree]: crate::lazy_tree
 pub struct Bundle {
     content: Content,
     kind: JSON,
