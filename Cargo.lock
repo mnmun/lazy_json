@@ -379,10 +379,11 @@ dependencies = [
 [[package]]
 name = "lazy_tree"
 version = "0.0.0"
-source = "git+https://github.com/mnmun/lazy_tree?branch=main#64f5fcaadc9be69f98bc4b3fd469ace0140da8f2"
+source = "git+https://github.com/mnmun/lazy_tree?branch=main#3c647a827a4e8f5c154503a75ad09c6a4299a965"
 dependencies = [
  "async-trait",
  "document-features",
+ "futures-lite",
  "getset",
  "tokio",
 ]
