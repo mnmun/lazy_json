@@ -20,7 +20,7 @@ use lazy_tree::Cursor;
 
 use crate::{JSON, lexer};
 
-/// # How often should control be yielded back to the [`tokio`] runtime
+/// # How often should control be yielded back to the async runtime
 const YIELD_INTERVAL: usize = 1;
 
 const OBJECT: &str = "{...}";
@@ -275,7 +275,7 @@ impl lazy_tree::node::Callbacks<Bundle, Error<JSON>> for Callbacks {
 /// [`Nodes`] are created automatically when the [`cursor`] needs to access them
 /// and are deleted when they are no longer used.
 ///
-/// Implemented using the [lazy_tree] crate for the [tokio] runtime.
+/// Implemented using the [`lazy_tree`] crate.
 ///
 /// ## Creation
 ///
@@ -715,6 +715,7 @@ mod count {
     use std::borrow::Cow;
 
     use a_bc::{Error, Token, error};
+    use futures_lite::future;
 
     use crate::{Bundle, JSON, lexer, parser::YIELD_INTERVAL};
 
@@ -782,7 +783,7 @@ mod count {
             }
 
             if counter.is_multiple_of(YIELD_INTERVAL) {
-                tokio::task::yield_now().await;
+                future::yield_now().await;
             }
         }
 
@@ -848,7 +849,7 @@ mod count {
             }
 
             if counter.is_multiple_of(YIELD_INTERVAL) {
-                tokio::task::yield_now().await;
+                future::yield_now().await;
             }
         }
 
@@ -864,6 +865,7 @@ mod query {
     use std::borrow::Cow;
 
     use a_bc::{Error, Token};
+    use futures_lite::future;
     use lazy_tree::node;
 
     use crate::{
@@ -928,7 +930,7 @@ mod query {
             lexer.expect(&[JSON::Comma])?;
 
             if counter.is_multiple_of(YIELD_INTERVAL) {
-                tokio::task::yield_now().await;
+                future::yield_now().await;
             }
         }
     }
@@ -997,7 +999,7 @@ mod query {
             lexer.expect(&[JSON::Comma])?;
 
             if counter.is_multiple_of(YIELD_INTERVAL) {
-                tokio::task::yield_now().await;
+                future::yield_now().await;
             }
         }
     }

@@ -9,6 +9,44 @@ use lazy_tree::cursor::{Direction, Target};
 
 use crate::{lexer::JSON, parser::Builder};
 
+macro_rules! runtime_test {
+    ($body:ident) => {
+        mod $body {
+            use super::*;
+
+            #[tokio::test(flavor = "current_thread")]
+            #[serial]
+            async fn tokio_current() {
+                $body().await
+            }
+
+            #[tokio::test(flavor = "multi_thread")]
+            #[serial]
+            async fn tokio_multi() {
+                $body().await
+            }
+
+            #[test]
+            #[serial]
+            fn futures() {
+                futures::executor::block_on($body())
+            }
+
+            #[test]
+            #[serial]
+            fn futures_lite() {
+                futures_lite::future::block_on($body())
+            }
+
+            #[test]
+            #[serial]
+            fn smol() {
+                smol::block_on($body())
+            }
+        }
+    };
+}
+
 #[test]
 #[serial]
 fn cancellation() {
@@ -52,8 +90,7 @@ fn cancellation() {
     });
 }
 
-#[tokio::test]
-#[serial]
+runtime_test!(empty_source);
 async fn empty_source() {
     let source = "";
     assert!(
@@ -63,8 +100,7 @@ async fn empty_source() {
     );
 }
 
-#[tokio::test]
-#[serial]
+runtime_test!(whitespace_source);
 async fn whitespace_source() {
     let source = " \n \t ";
     assert!(Builder::new(source).build().is_err_and(|e| {
@@ -78,8 +114,7 @@ async fn whitespace_source() {
     }));
 }
 
-#[tokio::test]
-#[serial]
+runtime_test!(empty_string);
 async fn empty_string() {
     {
         let source = " \n \t \"\" \n \t ";
@@ -114,8 +149,7 @@ async fn empty_string() {
     }
 }
 
-#[tokio::test]
-#[serial]
+runtime_test!(valid_string);
 async fn valid_string() {
     {
         let source = " \n \t \"foo\" \n \t ";
@@ -352,8 +386,7 @@ async fn valid_string() {
     }
 }
 
-#[tokio::test]
-#[serial]
+runtime_test!(invalid_string);
 async fn invalid_string() {
     let source = r#" " "#;
     let parser = Builder::new(source).build().unwrap();
@@ -367,8 +400,7 @@ async fn invalid_string() {
     }));
 }
 
-#[tokio::test]
-#[serial]
+runtime_test!(sequence);
 async fn sequence() {
     {
         let source = "asdfgh";
@@ -435,8 +467,7 @@ async fn sequence() {
     }
 }
 
-#[tokio::test]
-#[serial]
+runtime_test!(empty_object);
 async fn empty_object() {
     {
         let source = "{}";
@@ -471,8 +502,7 @@ async fn empty_object() {
     }
 }
 
-#[tokio::test]
-#[serial]
+runtime_test!(valid_object);
 async fn valid_object() {
     {
         let source =
@@ -640,8 +670,7 @@ async fn valid_object() {
     }
 }
 
-#[tokio::test]
-#[serial]
+runtime_test!(invalid_object);
 async fn invalid_object() {
     {
         let source = r#" { "foo": "bar"  "#;
@@ -722,8 +751,7 @@ async fn invalid_object() {
     }
 }
 
-#[tokio::test]
-#[serial]
+runtime_test!(empty_array);
 async fn empty_array() {
     {
         let source = "[]";
@@ -758,8 +786,7 @@ async fn empty_array() {
     }
 }
 
-#[tokio::test]
-#[serial]
+runtime_test!(valid_array);
 async fn valid_array() {
     {
         let source = " \n \t [ \n \t \"foo\" \n \t , \n \t bar \n \t , \n \t [ \n \t ] \n \t , \n \t { \n \t } \n \t ]";
@@ -874,8 +901,7 @@ async fn valid_array() {
     }
 }
 
-#[tokio::test]
-#[serial]
+runtime_test!(invalid_array);
 async fn invalid_array() {
     {
         let source = r#" [ "foo", bar "#;
@@ -917,8 +943,7 @@ async fn invalid_array() {
     }
 }
 
-#[tokio::test]
-#[serial]
+runtime_test!(full_single_cursor);
 async fn full_single_cursor() {
     let source = r#"
             {
