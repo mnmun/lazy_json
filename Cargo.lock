@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "a_bc"
 version = "0.0.0"
-source = "git+https://github.com/mnmun/a_bc?branch=main#94ec7b2ecadc377ff7d971643f988742287cda4f"
+source = "git+https://github.com/mnmun/a_bc?branch=main#9ad3c550cf666a52630986f166ee477d7820d68e"
 dependencies = [
  "getset",
  "memchr",
@@ -19,7 +19,7 @@ checksum = "82f6aeea286b8eb4dd3431a1be1b59d290ace00f5bfd8e2a159bc2a05e2c1667"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -109,7 +109,7 @@ dependencies = [
 [[package]]
 name = "lazy_tree"
 version = "0.0.0"
-source = "git+https://github.com/mnmun/lazy_tree?branch=main#fbcd1ca46a5c58852311cee1e20620fe96fcb11a"
+source = "git+https://github.com/mnmun/lazy_tree?branch=main#64f5fcaadc9be69f98bc4b3fd469ace0140da8f2"
 dependencies = [
  "async-trait",
  "document-features",
@@ -250,7 +250,7 @@ checksum = "a22144e767da4ddd8416dbf383700542ffd8a5dc493dfecedfe1fe3ad03c98ae"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -278,9 +278,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "3.0.9"
+version = "3.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d78c8dee4c7bf0e14673097256fed6142ce9d3b85a408189d07482442145823b"
+checksum = "4ae9ccbea3a7b0b09443036490c8f34a8b1b760fd345e5c0dae0aac718faea79"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -305,7 +305,7 @@ checksum = "78773a2a397f451582ce068015985c33193cf6dea8b74d2a639fe457b2f07b0e"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
 ]
 
 [[package]]

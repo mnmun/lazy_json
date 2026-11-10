@@ -21,7 +21,8 @@ use std::{
 };
 
 use a_bc::{
-    Cancel, Token,
+    Token,
+    cancellation::Flag,
     error::{self, Relation, row_col_pos},
     memchr::memchr,
     traits::InnerRange,
@@ -367,7 +368,7 @@ impl<'source> Lexer<'source> {
     ///
     /// - [`a_bc::error::Token::PairNotFound`] - the `closing` delimiter
     ///   character is never found;
-    /// - [`a_bc::error::Lexer::Cancelled`] - [`cancellation`] is requested
+    /// - [`a_bc::error::Lexer::Cancelled`] - cancellation is [`requested`]
     ///   mid-scan.
     ///
     /// ## Example
@@ -390,7 +391,7 @@ impl<'source> Lexer<'source> {
     /// See the [`module`] documentation for more information.
     ///
     /// [`cursor`]: crate::a_bc::Lexer::cursor()
-    /// [`cancellation`]: crate::a_bc::Cancel
+    /// [`requested`]: crate::a_bc::cancellation::Flag::cancel()
     /// [`module`]: crate::lexer
     pub(crate) fn find_block(
         &mut self,
@@ -906,7 +907,7 @@ impl<'source> Iterator for Lexer<'source> {
     /// - `"` -> [`String`]
     /// - anything else -> [`Sequence`]
     ///
-    /// On [`cancellation`] request, immediately returns the
+    /// On cancellation [`request`], immediately returns the
     /// [`a_bc::error::Lexer::Cancelled`] error and moves the [`cursor`] to the
     /// end of [`range`], so the next requested [`token`] will be `None.`
     ///
@@ -923,7 +924,7 @@ impl<'source> Iterator for Lexer<'source> {
     /// [`Array`]: crate::JSON::Array
     /// [`String`]: crate::JSON::String
     /// [`Sequence`]: crate::JSON::Sequence
-    /// [`cancellation`]: crate::a_bc::Cancel::cancel()
+    /// [`request`]: crate::a_bc::cancellation::Flag::cancel()
     /// [`cursor`]: crate::a_bc::lexer::Cursor
     /// [`range`]: crate::a_bc::lexer::Data::range()
     /// [whitespace characters]: u8::is_ascii_whitespace()
@@ -1026,7 +1027,7 @@ impl Builder<'_> {
     /// See the [`builder`] documentation for more information.
     ///
     /// [`builder`]: crate::lexer::Builder
-    pub fn set_flag(&mut self, value: impl Into<Option<Cancel>>) -> &mut Self {
+    pub fn set_flag(&mut self, value: impl Into<Option<Flag>>) -> &mut Self {
         self.0.set_flag(value);
         self
     }
@@ -1058,7 +1059,7 @@ impl Builder<'_> {
     ///
     /// [`builder`]: crate::lexer::Builder
     #[must_use = "method returns the modified value"]
-    pub fn with_flag(mut self, value: impl Into<Option<Cancel>>) -> Self {
+    pub fn with_flag(mut self, value: impl Into<Option<Flag>>) -> Self {
         self.0.set_flag(value);
         self
     }

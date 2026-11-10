@@ -100,7 +100,7 @@ pub struct Bundle {
     content: Content,
     kind: JSON,
 
-    flag: a_bc::Cancel,
+    flag: a_bc::cancellation::Flag,
     source: Arc<Cow<'static, str>>,
     range: Option<Range<usize>>,
 
@@ -121,7 +121,7 @@ impl Bundle {
         content: Content,
         kind: JSON,
 
-        flag: a_bc::Cancel,
+        flag: a_bc::cancellation::Flag,
         source: Arc<Cow<'static, str>>,
         range: impl Into<Option<Range<usize>>>,
 
@@ -526,7 +526,7 @@ impl lazy_tree::node::Callbacks<Bundle, Error<JSON>> for Callbacks {
 /// [`Parser::stop()`]: crate::Parser::stop()
 pub struct Parser {
     tree: lazy_tree::Tree<Bundle, Error<JSON>>,
-    flag: a_bc::Cancel,
+    flag: a_bc::cancellation::Flag,
 }
 
 impl Parser {
@@ -692,7 +692,7 @@ impl Builder {
                 }
             };
 
-        let flag = a_bc::Cancel::new();
+        let flag = a_bc::cancellation::Flag::new();
 
         let bundle = Bundle::new(
             Content::Slice(range.clone()),
