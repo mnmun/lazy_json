@@ -4,7 +4,7 @@
 //!
 //! ## [`Lexer`]
 //!
-//! ![](https://github.com/mnmun/images/blob/main/box.png?raw=true)
+//! ![](https://github.com/mnmun/images/blob/main/baggage.png?raw=true)
 //!
 //! Implemented using the [`a_bc`] crate.
 //!

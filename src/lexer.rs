@@ -1,6 +1,6 @@
 //! # [`Lexer`]
 //!
-//! ![](https://github.com/mnmun/images/blob/main/box.png?raw=true)
+//! ![](https://github.com/mnmun/images/blob/main/baggage.png?raw=true)
 //!
 //! Defines a [`lexer`] that extracts [`tokens`] tagged with the [`JSON`] kinds
 //! from the source raw bytes.
@@ -98,7 +98,7 @@ impl InnerRange for JSON {
 
 /// # `Lexer`
 ///
-/// ![](https://github.com/mnmun/images/blob/main/box.png?raw=true)
+/// ![](https://github.com/mnmun/images/blob/main/baggage.png?raw=true)
 ///
 /// Newtype wrapper around the [`a_bc::Lexer`] type that extracts [`tokens`]
 /// of the following [`kinds`] from the source raw bytes:
