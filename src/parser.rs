@@ -189,28 +189,13 @@ struct Callbacks;
 #[lazy_tree::async_trait]
 impl lazy_tree::node::Callbacks<Bundle, Error<JSON>> for Callbacks {
     async fn total(&self, parent: &mut Bundle) -> Result<usize, Error<JSON>> {
-        let range = if let Some(range) = &parent.range {
-            range
-        } else {
+        if parent.range.is_none() {
             return Ok(0);
-        };
+        }
 
-        let mut lexer =
-            lexer::Builder::new(Cow::Borrowed(parent.source.as_bytes()))
-                .with_range(range.clone())
-                .with_flag(parent.flag.clone())
-                .build()?;
-
-        let token = lexer.expect(&[
-            JSON::Object,
-            JSON::Array,
-            JSON::String,
-            JSON::Sequence,
-        ])?;
-
-        let count = match *token.kind() {
-            JSON::Object => count::object(parent, token).await?,
-            JSON::Array => count::array(parent, token).await?,
+        let count = match parent.kind {
+            JSON::Object => count::object(parent).await?,
+            JSON::Array => count::array(parent).await?,
             JSON::String | JSON::Sequence => 1,
             _ => unreachable!(),
         };
@@ -224,26 +209,11 @@ impl lazy_tree::node::Callbacks<Bundle, Error<JSON>> for Callbacks {
         index: usize,
     ) -> Result<lazy_tree::node::Builder<Bundle, Error<JSON>>, Error<JSON>>
     {
-        let range = parent.range.as_ref().unwrap();
-
-        let mut lexer =
-            lexer::Builder::new(Cow::Borrowed(parent.source.as_bytes()))
-                .with_range(range.clone())
-                .with_flag(parent.flag.clone())
-                .build()?;
-
-        let token = lexer.expect(&[
-            JSON::Object,
-            JSON::Array,
-            JSON::String,
-            JSON::Sequence,
-        ])?;
-
-        match *token.kind() {
-            JSON::Object => query::object(parent, token, index).await,
-            JSON::Array => query::array(parent, token, index).await,
-            JSON::String => query::string(parent, token),
-            JSON::Sequence => query::sequence(parent, token),
+        match parent.kind {
+            JSON::Object => query::object(parent, index).await,
+            JSON::Array => query::array(parent, index).await,
+            JSON::String => query::string(parent),
+            JSON::Sequence => query::sequence(parent),
             _ => unreachable!(),
         }
     }
@@ -664,38 +634,29 @@ impl Builder {
             .cache_interval
             .map(|interval| if interval == 0 { 1 } else { interval });
 
-        let range = 0..source.len();
+        let mut lexer =
+            lexer::Builder::new(Cow::Borrowed(source.as_bytes())).build()?;
 
-        let kind =
-            match source.as_bytes().iter().find(|c| !c.is_ascii_whitespace()) {
-                Some(b'{') => JSON::Object,
-                Some(b'[') => JSON::Array,
-                Some(b'"') => JSON::String,
-                Some(_) => JSON::Sequence,
-                None => {
-                    return Err(error::Token::ExpectedButGot {
-                        expected: [
-                            JSON::Object,
-                            JSON::Array,
-                            JSON::String,
-                            JSON::Sequence,
-                        ]
-                        .into(),
-                        got: None,
-                        location: (
-                            error::Relation::After,
-                            error::row_col_pos(source.as_bytes()),
-                        ),
-                    }
-                    .into());
-                }
-            };
+        let token = lexer.expect(&[
+            JSON::Object,
+            JSON::Array,
+            JSON::String,
+            JSON::Sequence,
+        ])?;
+
+        let range = match token.kind() {
+            JSON::Object | JSON::Array | JSON::String => {
+                token.inner_range().unwrap()
+            }
+            JSON::Sequence => token.range().clone(),
+            _ => unreachable!(),
+        };
 
         let flag = a_bc::cancellation::Flag::new();
 
         let bundle = Bundle::new(
-            Content::Slice(range.clone()),
-            kind,
+            Content::Slice(0..source.len()),
+            *token.kind(),
             flag.clone(),
             source,
             range,
@@ -713,19 +674,16 @@ impl Builder {
 mod count {
     use std::borrow::Cow;
 
-    use a_bc::{Error, Token, error};
+    use a_bc::{Error, error};
     use futures_lite::future;
 
     use crate::{Bundle, JSON, lexer, parser::YIELD_INTERVAL};
 
-    pub async fn object(
-        parent: &mut Bundle,
-        token: Token<JSON>,
-    ) -> Result<usize, Error<JSON>> {
+    pub async fn object(parent: &mut Bundle) -> Result<usize, Error<JSON>> {
         let mut lexer =
             lexer::Builder::new(Cow::Borrowed(parent.source.as_bytes()))
                 .with_flag(parent.flag.clone())
-                .with_range(token.inner_range().unwrap())
+                .with_range(parent.range.clone().unwrap())
                 .build()?;
 
         let mut checkpoints = Vec::default();
@@ -793,14 +751,11 @@ mod count {
         Ok(counter)
     }
 
-    pub async fn array(
-        parent: &mut Bundle,
-        token: Token<JSON>,
-    ) -> Result<usize, Error<JSON>> {
+    pub async fn array(parent: &mut Bundle) -> Result<usize, Error<JSON>> {
         let mut lexer =
             lexer::Builder::new(Cow::Borrowed(parent.source.as_bytes()))
                 .with_flag(parent.flag.clone())
-                .with_range(token.inner_range().unwrap())
+                .with_range(parent.range.clone().unwrap())
                 .build()?;
 
         let mut checkpoints = Vec::default();
@@ -863,7 +818,7 @@ mod count {
 mod query {
     use std::borrow::Cow;
 
-    use a_bc::{Error, Token};
+    use a_bc::Error;
     use futures_lite::future;
     use lazy_tree::node;
 
@@ -874,7 +829,6 @@ mod query {
 
     pub async fn object(
         parent: &Bundle,
-        token: Token<JSON>,
         index: usize,
     ) -> Result<node::Builder<Bundle, Error<JSON>>, Error<JSON>> {
         let (position, mut counter) = match &parent.cache {
@@ -896,7 +850,7 @@ mod query {
             lexer::Builder::new(Cow::Borrowed(parent.source.as_bytes()))
                 .with_position(position)
                 .with_flag(parent.flag.clone())
-                .with_range(token.inner_range().unwrap())
+                .with_range(parent.range.clone())
                 .build()?;
 
         loop {
@@ -912,12 +866,20 @@ mod query {
             ])?;
 
             if index == counter {
+                let range = match value.kind() {
+                    JSON::String | JSON::Object | JSON::Array => {
+                        value.inner_range().unwrap()
+                    }
+                    JSON::Sequence => value.range().clone(),
+                    _ => unreachable!(),
+                };
+
                 let bundle = Bundle::new(
                     Content::Slice(name.inner_range().unwrap()),
                     *value.kind(),
                     parent.flag.clone(),
                     parent.source.clone(),
-                    value.range().clone(),
+                    range,
                     parent.cache.as_ref().map(|cache| cache.interval),
                 );
 
@@ -936,7 +898,6 @@ mod query {
 
     pub async fn array(
         parent: &Bundle,
-        token: Token<JSON>,
         index: usize,
     ) -> Result<node::Builder<Bundle, Error<JSON>>, Error<JSON>> {
         let (position, mut counter) = match &parent.cache {
@@ -958,7 +919,7 @@ mod query {
             lexer::Builder::new(Cow::Borrowed(parent.source.as_bytes()))
                 .with_position(position)
                 .with_flag(parent.flag.clone())
-                .with_range(token.inner_range().unwrap())
+                .with_range(parent.range.clone())
                 .build()?;
 
         loop {
@@ -967,10 +928,10 @@ mod query {
             if index == counter {
                 let (content, range) = match *value.kind() {
                     JSON::Object => {
-                        (Content::Object, Some(value.range().clone()))
+                        (Content::Object, Some(value.inner_range().unwrap()))
                     }
                     JSON::Array => {
-                        (Content::Array, Some(value.range().clone()))
+                        (Content::Array, Some(value.inner_range().unwrap()))
                     }
                     JSON::String => {
                         (Content::Slice(value.inner_range().unwrap()), None)
@@ -1005,10 +966,9 @@ mod query {
 
     pub fn string(
         parent: &Bundle,
-        token: Token<JSON>,
     ) -> Result<node::Builder<Bundle, Error<JSON>>, Error<JSON>> {
         let bundle = Bundle::new(
-            Content::Slice(token.inner_range().unwrap()),
+            Content::Slice(parent.range.clone().unwrap()),
             JSON::String,
             parent.flag.clone(),
             parent.source.clone(),
@@ -1021,10 +981,9 @@ mod query {
 
     pub fn sequence(
         parent: &Bundle,
-        token: Token<JSON>,
     ) -> Result<node::Builder<Bundle, Error<JSON>>, Error<JSON>> {
         let bundle = Bundle::new(
-            Content::Slice(token.range().clone()),
+            Content::Slice(parent.range.clone().unwrap()),
             JSON::Sequence,
             parent.flag.clone(),
             parent.source.clone(),

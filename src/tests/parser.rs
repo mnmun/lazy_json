@@ -389,9 +389,8 @@ async fn valid_string() {
 runtime_test!(invalid_string);
 async fn invalid_string() {
     let source = r#" " "#;
-    let parser = Builder::new(source).build().unwrap();
 
-    assert!(parser.cursor().await.is_err_and(|e| {
+    assert!(Builder::new(source).build().is_err_and(|e| {
         e == Error::Token(error::Token::PairNotFound {
             opening: "\"".into(),
             closing: "\"".into(),
@@ -674,9 +673,8 @@ runtime_test!(invalid_object);
 async fn invalid_object() {
     {
         let source = r#" { "foo": "bar"  "#;
-        let parser = Builder::new(source).build().unwrap();
 
-        assert!(parser.cursor().await.is_err_and(|e| {
+        assert!(Builder::new(source).build().is_err_and(|e| {
             e == Error::Token(error::Token::PairNotFound {
                 opening: "{".into(),
                 closing: "}".into(),
@@ -905,9 +903,8 @@ runtime_test!(invalid_array);
 async fn invalid_array() {
     {
         let source = r#" [ "foo", bar "#;
-        let parser = Builder::new(source).build().unwrap();
 
-        assert!(parser.cursor().await.is_err_and(|e| {
+        assert!(Builder::new(source).build().is_err_and(|e| {
             e == Error::Token(error::Token::PairNotFound {
                 opening: "[".into(),
                 closing: "]".into(),
