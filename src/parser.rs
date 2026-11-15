@@ -16,7 +16,6 @@
 use std::{borrow::Cow, fmt, ops::Range, sync::Arc};
 
 use a_bc::error::{self, Error};
-use lazy_tree::Cursor;
 
 use crate::{JSON, lexer};
 
@@ -25,6 +24,8 @@ const YIELD_INTERVAL: usize = 1;
 
 const OBJECT: &str = "{...}";
 const ARRAY: &str = "[...]";
+
+pub type Cursor<'parser> = lazy_tree::Cursor<'parser, Bundle, Error<JSON>>;
 
 enum Content {
     Object,
@@ -59,10 +60,10 @@ struct Cache {
 /// # use pretty_assertions::assert_eq;
 /// #
 /// use lazy_json::{
-///     JSON, Parser,
+///     JSON, Parser, Cursor,
 ///     parser::{Builder, Bundle},
 ///     a_bc::Error,
-///     lazy_tree::{Cursor, cursor::{Direction, Target}}
+///     lazy_tree::cursor::{Direction, Target},
 /// };
 ///
 /// # #[tokio::main]
@@ -71,7 +72,7 @@ struct Cache {
 ///
 /// let parser: Parser = Builder::new(source).build().unwrap();
 ///
-/// let mut cursor: Cursor<Bundle, Error<JSON>> = parser.cursor().await.unwrap();
+/// let mut cursor: Cursor<'_> = parser.cursor().await.unwrap();
 ///
 /// cursor.walk(Direction::Down(Target::First)).await.unwrap();
 /// assert_eq!(cursor.kind(), &JSON::String);
@@ -311,10 +312,9 @@ impl lazy_tree::node::Callbacks<Bundle, Error<JSON>> for Callbacks {
 /// # use pretty_assertions::assert_eq;
 /// #
 /// use lazy_json::{
-///     JSON, Parser,
+///     JSON, Parser, Cursor,
 ///     parser::{Builder, Bundle},
 ///     a_bc::Error,
-///     lazy_tree::Cursor,
 /// };
 ///
 /// # #[tokio::main]
@@ -323,7 +323,7 @@ impl lazy_tree::node::Callbacks<Bundle, Error<JSON>> for Callbacks {
 ///
 /// let parser: Parser = Builder::new(source).build().unwrap();
 ///
-/// let cursor: Cursor<Bundle, Error<JSON>> = parser.cursor().await.unwrap();
+/// let cursor: Cursor<'_> = parser.cursor().await.unwrap();
 /// assert_eq!(cursor.kind(), &JSON::Object);
 /// assert_eq!(cursor.content(), source);
 /// # }
@@ -337,10 +337,10 @@ impl lazy_tree::node::Callbacks<Bundle, Error<JSON>> for Callbacks {
 /// # use pretty_assertions::assert_eq;
 /// #
 /// use lazy_json::{
-///     JSON, Parser,
+///     JSON, Parser, Cursor,
 ///     parser::{Builder, Bundle},
 ///     a_bc::Error,
-///     lazy_tree::{Cursor, cursor::{Direction, Target}},
+///     lazy_tree::cursor::{Direction, Target},
 /// };
 ///
 /// # #[tokio::main]
@@ -370,20 +370,17 @@ impl lazy_tree::node::Callbacks<Bundle, Error<JSON>> for Callbacks {
 ///
 /// let parser: Parser = Builder::new(source).build().unwrap();
 ///
-/// let mut cursor_0: Cursor<Bundle, Error<JSON>> =
-///     parser.cursor().await.unwrap();
+/// let mut cursor_0: Cursor<'_> = parser.cursor().await.unwrap();
 /// cursor_0.walk(Direction::Down(Target::First)).await.unwrap();
 /// assert_eq!(cursor_0.kind(), &JSON::Object);
 /// assert_eq!(cursor_0.content(), "object");
 ///
-/// let mut cursor_1: Cursor<Bundle, Error<JSON>> =
-///     parser.cursor().await.unwrap();
+/// let mut cursor_1: Cursor<'_> = parser.cursor().await.unwrap();
 /// cursor_1.jump(Direction::Up).await.unwrap();
 /// assert_eq!(cursor_1.kind(), &JSON::String);
 /// assert_eq!(cursor_1.content(), "foo");
 ///
-/// let mut cursor_2: Cursor<Bundle, Error<JSON>> =
-///     parser.cursor().await.unwrap();
+/// let mut cursor_2: Cursor<'_> = parser.cursor().await.unwrap();
 /// cursor_2.go_to(&[0, 0, 1, 0]).await.unwrap();
 /// assert_eq!(cursor_2.kind(), &JSON::Sequence);
 /// assert_eq!(cursor_2.content(), "42");
@@ -400,10 +397,10 @@ impl lazy_tree::node::Callbacks<Bundle, Error<JSON>> for Callbacks {
 /// # use pretty_assertions::assert_eq;
 /// #
 /// use lazy_json::{
-///     JSON, Parser,
+///     JSON, Parser, Cursor,
 ///     parser::{Builder, Bundle},
 ///     a_bc::Error,
-///     lazy_tree::{Cursor, cursor::{Direction, Target}},
+///     lazy_tree::cursor::{Direction, Target},
 /// };
 ///
 /// # #[tokio::main]
@@ -437,8 +434,7 @@ impl lazy_tree::node::Callbacks<Bundle, Error<JSON>> for Callbacks {
 ///     let parser = parser.clone();
 ///
 ///     async move {
-///         let mut cursor: Cursor<Bundle, Error<JSON>> =
-///             parser.cursor().await.unwrap();
+///         let mut cursor: Cursor<'_> = parser.cursor().await.unwrap();
 ///         cursor.walk(Direction::Down(Target::First)).await.unwrap();
 ///
 ///         for _ in 0..10 {
@@ -451,8 +447,7 @@ impl lazy_tree::node::Callbacks<Bundle, Error<JSON>> for Callbacks {
 ///     let parser = parser.clone();
 ///
 ///     async move {
-///         let mut cursor: Cursor<Bundle, Error<JSON>> =
-///             parser.cursor().await.unwrap();
+///         let mut cursor: Cursor<'_> = parser.cursor().await.unwrap();
 ///         cursor.walk(Direction::Down(Target::Last)).await.unwrap();
 ///
 ///         for _ in 0..10 {
@@ -508,7 +503,7 @@ impl Parser {
     /// [`node`]: crate::lazy_tree::Node
     pub async fn cursor<'parser>(
         &'parser self,
-    ) -> Result<Cursor<'parser, Bundle, Error<JSON>>, Error<JSON>> {
+    ) -> Result<Cursor<'parser>, Error<JSON>> {
         self.tree.cursor().await
     }
 

@@ -79,10 +79,10 @@
 //! # use pretty_assertions::assert_eq;
 //! #
 //! use lazy_json::{
-//!     JSON, Parser,
+//!     JSON, Parser, Cursor,
 //!     parser::{Builder, Bundle},
 //!     a_bc::Error,
-//!     lazy_tree::{Cursor, cursor::{Direction, Target}},
+//!     lazy_tree::cursor::{Direction, Target},
 //! };
 //!
 //! # #[tokio::main]
@@ -112,8 +112,7 @@
 //!
 //! let parser: Parser = Builder::new(source).build().unwrap();
 //!
-//! let mut cursor: Cursor<Bundle, Error<JSON>> =
-//!     parser.cursor().await.unwrap();
+//! let mut cursor: Cursor<'_> = parser.cursor().await.unwrap();
 //! assert_eq!(cursor.kind(), &JSON::Object);
 //! assert_eq!(cursor.content(), source);
 //!
@@ -165,7 +164,7 @@ pub mod lexer;
 pub mod parser;
 
 pub use lexer::{JSON, Lexer};
-pub use parser::{Bundle, Parser};
+pub use parser::{Bundle, Cursor, Parser};
 
 pub use a_bc;
 pub use lazy_tree;

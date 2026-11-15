@@ -69,10 +69,10 @@ Represents a JSON string data as a `tree` of lazily-created `nodes`:
 
 ```rust
 use lazy_json::{
-    JSON, Parser,
+    JSON, Parser, Cursor,
     parser::{Builder, Bundle},
     a_bc::Error,
-    lazy_tree::{Cursor, cursor::{Direction, Target}},
+    lazy_tree::cursor::{Direction, Target},
 };
 
 //
@@ -100,8 +100,7 @@ let source: &'static str = r#"
 
 let parser: Parser = Builder::new(source).build().unwrap();
 
-let mut cursor: Cursor<Bundle, Error<JSON>> =
-    parser.cursor().await.unwrap();
+let mut cursor: Cursor<'_> = parser.cursor().await.unwrap();
 assert_eq!(cursor.kind(), &JSON::Object);
 assert_eq!(cursor.content(), source);
 
