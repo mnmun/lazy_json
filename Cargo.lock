@@ -210,9 +210,9 @@ dependencies = [
 
 [[package]]
 name = "errno"
-version = "0.3.14"
+version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
+checksum = "e35d6e78f4cebb90e51d543db8fe41528851d6deeef6ef21ebd4bfdc1e784776"
 dependencies = [
  "libc",
  "windows-sys",
@@ -379,7 +379,7 @@ dependencies = [
 [[package]]
 name = "lazy_tree"
 version = "0.0.0"
-source = "git+https://github.com/mnmun/lazy_tree?branch=main#3c647a827a4e8f5c154503a75ad09c6a4299a965"
+source = "git+https://github.com/mnmun/lazy_tree?branch=main#6afac11fa1591a6e6143f925777c65c3e0c2a74b"
 dependencies = [
  "async-trait",
  "document-features",
