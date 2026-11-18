@@ -224,7 +224,8 @@ impl lazy_tree::node::Callbacks<Bundle, Error<JSON>> for Callbacks {
 ///
 /// ![](https://github.com/mnmun/images/blob/main/cart.png?raw=true)
 ///
-/// Represents a JSON string data as a [`tree`] of lazily-created [`nodes`]:
+/// Represents string data as a [`tree`] of lazily-created [`nodes`], based on
+/// the [`JSON`] structure contained within:
 ///
 /// ```text
 ///    *Source data*                *Parsed tree*
@@ -242,10 +243,11 @@ impl lazy_tree::node::Callbacks<Bundle, Error<JSON>> for Callbacks {
 /// }
 /// ```
 ///
-/// [`Nodes`] are created automatically when the [`cursor`] needs to access them
-/// and are deleted when they are no longer used.
+/// The entire hierarchical structure of [`nodes`] is not built at once -
+/// [`nodes`] are created lazily when the [`cursor`] needs to access them and
+/// are deleted when they are no longer used.
 ///
-/// Implemented using the [`lazy_tree`] crate.
+/// Implemented using the [`lexer`] and the [`lazy_tree`] crate.
 ///
 /// ## Creation
 ///

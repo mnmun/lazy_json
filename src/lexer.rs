@@ -101,7 +101,7 @@ impl InnerRange for JSON {
 /// ![](https://github.com/mnmun/images/blob/main/baggage.png?raw=true)
 ///
 /// Newtype wrapper around the [`a_bc::Lexer`] type that extracts [`tokens`]
-/// of the following [`kinds`] from the source raw bytes:
+/// of the following [`kinds`] from the sequence of raw bytes:
 ///
 /// - [`Comma`] - comma `,` character;
 /// - [`Colon`] - colon `:` character;
@@ -114,7 +114,7 @@ impl InnerRange for JSON {
 ///
 /// It is important to note the [`sequence`] [`kind`]: the `lexer` does not
 /// distinguish between numbers, `null` and the boolean values `true` and
-/// `false`. Instead, it groups them all under the [`sequence`] category,
+/// `false`. Instead, it groups them all under the [`sequence`] [`kind`],
 /// leaving it up to the developer to determine whether a [`token's`] value is
 /// valid.
 ///

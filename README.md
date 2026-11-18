@@ -1,6 +1,6 @@
 # lazy_json
 
-Provides a `lexer` that extracts `tokens` at the current level of the hierarchy and a `parser` that represents source data as a `tree` of lazily-created `nodes`.
+Quickly splits string data into `JSON` `tokens` and forms a `tree` of lazily-created `nodes` based on them.
 
 ## `Lexer`
 
@@ -8,7 +8,7 @@ Provides a `lexer` that extracts `tokens` at the current level of the hierarchy 
 
 Implemented using the [`a_bc`](https://github.com/mnmun/a_bc) crate.
 
-Splits the JSON source data into tokens of the following kinds:
+Splits the sequence of raw bytes into tokens of the following `kinds`:
 
 - `Comma` - comma `,` character;
 - `Colon` - colon `:` character;
@@ -16,6 +16,8 @@ Splits the JSON source data into tokens of the following kinds:
 - `Array` - square brackets `[` `]` and all characters between them;
 - `String` - double quotes `"` `"` and all characters between them;
 - `Sequence` - a contiguous run of characters: numbers, `true`, `false`, `null`, etc.; whitespace characters as well as the `:` and `,` characters act as separators.
+
+It is important to note the `sequence` `kind`: the `lexer` does not distinguish between numbers, `null` and the boolean values `true` and `false`. Instead, it groups them all under the `sequence` `kind`, leaving it up to the developer to determine whether a `token's` value is valid.
 
 `Lexer` can be created using a `builder`, and `tokens` can be extracted using the `next()` method:
 
@@ -45,7 +47,7 @@ assert_eq!(lexer.format(&token).unwrap(), r#""value""#);
 
 Implemented using the `lexer` and the [`lazy_tree`](https://github.com/mnmun/lazy_tree) crate.
 
-Represents a JSON string data as a `tree` of lazily-created `nodes`:
+Represents string data as a `tree` of lazily-created `nodes`, based on the `JSON` structure contained within:
 
 ```text
    *Source data*                *Parsed tree*
@@ -63,7 +65,7 @@ Represents a JSON string data as a `tree` of lazily-created `nodes`:
 }
 ```
 
-`Nodes` are created automatically when the `cursor` needs to access them and are deleted when they are no longer used.
+The entire hierarchical structure of `nodes` is not built at once - `nodes` are created lazily when the `cursor` needs to access them and are deleted when they are no longer used.
 
 `Parser` can be created using a `builder`, and the `tree` of lazily-created `nodes` can be traversed using a `cursor`:
 

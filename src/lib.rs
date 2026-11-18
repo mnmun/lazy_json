@@ -1,6 +1,5 @@
-//! Provides a [`lexer`] that extracts [`tokens`] at the current level of the
-//! hierarchy and a [`parser`] that represents source data as a [`tree`] of
-//! lazily-created [`nodes`].
+//! Quickly splits string data into [`JSON`] [`tokens`] and forms a [`tree`] of
+//! lazily-created [`nodes`] based on them.
 //!
 //! ## [`Lexer`]
 //!
@@ -8,7 +7,7 @@
 //!
 //! Implemented using the [`a_bc`] crate.
 //!
-//! Splits the JSON source data into tokens of the following [`kinds`]:
+//! Splits the sequence of raw bytes into tokens of the following [`kinds`]:
 //!
 //! - [`Comma`] - comma `,` character;
 //! - [`Colon`] - colon `:` character;
@@ -18,6 +17,12 @@
 //! - [`Sequence`] - a contiguous run of characters: numbers, `true`, `false`,
 //!   `null`, etc.; [whitespace characters] as well as the `:` and `,`
 //!   characters act as separators.
+//!
+//! It is important to note the [`sequence`] [`kind`]: the [`lexer`] does not
+//! distinguish between numbers, `null` and the boolean values `true` and
+//! `false`. Instead, it groups them all under the [`sequence`] [`kind`],
+//! leaving it up to the developer to determine whether a [`token's`] value is
+//! valid.
 //!
 //! [`Lexer`] can be created using a [`builder`](crate::lexer::Builder), and
 //! [`tokens`] can be extracted using the [`next()`] method:
@@ -50,7 +55,8 @@
 //!
 //! Implemented using the [`lexer`] and the [`lazy_tree`] crate.
 //!
-//! Represents a JSON string data as a [`tree`] of lazily-created [`nodes`]:
+//! Represents string data as a [`tree`] of lazily-created [`nodes`], based on
+//! the [`JSON`] structure contained within:
 //!
 //! ```text
 //!    *Source data*                *Parsed tree*
@@ -68,8 +74,9 @@
 //! }
 //! ```
 //!
-//! [`Nodes`] are created automatically when the [`cursor`] needs to access them
-//! and are deleted when they are no longer used.
+//! The entire hierarchical structure of [`nodes`] is not built at once -
+//! [`nodes`] are created lazily when the [`cursor`] needs to access them and
+//! are deleted when they are no longer used.
 //!
 //! [`Parser`] can be created using a [`builder`](crate::parser::Builder), and
 //! the [`tree`] of lazily-created [`nodes`] can be traversed using a
@@ -137,6 +144,7 @@
 //! [`lexer`]: crate::Lexer
 //! [`parser`]: crate::Parser
 //! [`kinds`]: crate::JSON
+//! [`kind`]: crate::JSON
 //! [`Comma`]: crate::JSON::Comma
 //! [`Colon`]: crate::JSON::Colon
 //! [`Object`]: crate::JSON::Object
@@ -145,6 +153,7 @@
 //! [`Sequence`]: crate::JSON::Sequence
 //! [whitespace characters]: u8::is_ascii_whitespace()
 //! [`tokens`]: crate::a_bc::Token
+//! [`token's`]: crate::a_bc::Token
 //! [`next()`]: crate::Lexer::next()
 //! [`tree`]: crate::lazy_tree::Tree
 //! [`node`]: crate::lazy_tree::Node
