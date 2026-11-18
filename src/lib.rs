@@ -1,6 +1,8 @@
 //! Quickly splits string data into [`JSON`] [`tokens`] and forms a [`tree`] of
 //! lazily-created [`nodes`] based on them.
 //!
+//! Used in [`keek`].
+//!
 //! ## [`Lexer`]
 //!
 //! ![](https://github.com/mnmun/images/blob/main/baggage.png?raw=true)
@@ -159,6 +161,7 @@
 //! [`node`]: crate::lazy_tree::Node
 //! [`Nodes`]: crate::lazy_tree::Node
 //! [`cursor`]: crate::lazy_tree::Cursor
+//! [`keek`]: https://github.com/mnmun/keek
 
 #![deny(rustdoc::broken_intra_doc_links)]
 #![deny(rustdoc::private_intra_doc_links)]

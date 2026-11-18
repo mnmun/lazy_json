@@ -2,6 +2,8 @@
 
 Quickly splits string data into `JSON` `tokens` and forms a `tree` of lazily-created `nodes` based on them.
 
+Used in [`keek`](https://github.com/mnmun/keek).
+
 ## `Lexer`
 
 ![](https://github.com/mnmun/images/blob/main/baggage.png?raw=true)

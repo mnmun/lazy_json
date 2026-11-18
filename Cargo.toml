@@ -1,19 +1,22 @@
 [package]
 name = "lazy_json"
 description = "JSON lexer and parser"
-version = "0.0.0"
+version = "1.0.0"
 authors = ["mnmun <mnmnmun@proton.me>"]
 homepage = "https://github.com/mnmun/json"
 repository = "https://github.com/mnmun/json"
+documentation = "https://docs.rs/lazy_json/latest/lazy_json/"
 readme = "README.md"
+keywords = ["json", "lazy", "lexer", "parser", "tree"]
+categories = ["asynchronous", "data-structures", "parser-implementations"]
 exclude = ["flake.nix", "flake.lock"]
 license = "MIT"
 edition = "2024"
 
 [dependencies]
-a_bc = { git = "https://github.com/mnmun/a_bc", branch = "main" }
+a_bc = "1.0.0"
 futures-lite = "2.6.1"
-lazy_tree = { git = "https://github.com/mnmun/lazy_tree", branch = "main" }
+lazy_tree = "1.0.0"
 
 [dev-dependencies]
 futures = "0.3.34"

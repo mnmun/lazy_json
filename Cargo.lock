@@ -4,8 +4,9 @@ version = 4
 
 [[package]]
 name = "a_bc"
-version = "0.0.0"
-source = "git+https://github.com/mnmun/a_bc?branch=main#9ad3c550cf666a52630986f166ee477d7820d68e"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf871abd56b71e882b0eaac4ace14355d5fb1afff99d16a6426cc33169191db9"
 dependencies = [
  "getset",
  "memchr",
@@ -364,7 +365,7 @@ checksum = "e17592d60ebacc7d5e169f4663c5f84f9161cc90328abcfe8456f41e4dfcb284"
 
 [[package]]
 name = "lazy_json"
-version = "0.0.0"
+version = "1.0.0"
 dependencies = [
  "a_bc",
  "futures",
@@ -378,8 +379,9 @@ dependencies = [
 
 [[package]]
 name = "lazy_tree"
-version = "0.0.0"
-source = "git+https://github.com/mnmun/lazy_tree?branch=main#6afac11fa1591a6e6143f925777c65c3e0c2a74b"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "097341758e3fb95edb296df3cb81450c24bac93ff36e34c6c6e259758e7ccd35"
 dependencies = [
  "async-trait",
  "document-features",
